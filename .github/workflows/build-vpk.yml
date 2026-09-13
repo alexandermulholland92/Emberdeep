@@ -62,5 +62,6 @@ jobs:
         run: make
 
       - uses: actions/upload-artifact@v4
-        with:
-          name: emberdeep-vpk
+  with:
+    name: emberdeep-vpk
+    path: ${{ steps.loc.outputs.dir }}/*.vpk
