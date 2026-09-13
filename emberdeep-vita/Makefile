@@ -51,8 +51,7 @@ $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
 
 $(TARGET).elf: $(OBJS)
-	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
-
+	$(CC) $(CFLAGS) $^ $(LIBS) $(LDLIBS) -o $@
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
