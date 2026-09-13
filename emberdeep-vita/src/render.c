@@ -514,7 +514,9 @@ int rd_init(void) {
 }
 void rd_shutdown(void) {
     free(wpos); free(wcol);
-    vglEnd();
+    void rd_shutdown(void) {
+    free(wpos); free(wcol);
+    /* vglEnd(); */  /* Remove or replace with correct vitaGL shutdown */
 }
 
 void rd_frame(float dt) {
