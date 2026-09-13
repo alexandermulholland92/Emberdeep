@@ -23,7 +23,9 @@ LIBS := -lvitaGL -lvitashark -lSceShaccCgExt -lmathneon \
         -lSceKernelDmacMgr_stub -lSceGxm_stub -lSceDisplay_stub \
         -lSceSysmodule_stub -lSceCtrl_stub -lSceAppMgr_stub \
         -lSceCommonDialog_stub -lm
-
+# Add to the end of your LDLIBS or LDFLAGS (LDLIBS is usually after objects)
+LDLIBS += -lstdc++ -lsupc++
+# or LDFLAGS += -lstdc++ -lsupc++
 all: $(TARGET).vpk
 
 $(TARGET).vpk: eboot.bin param.sfo
