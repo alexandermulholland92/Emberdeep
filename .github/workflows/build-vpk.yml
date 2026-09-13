@@ -13,6 +13,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Locate the project
+        id: loc
+        shell: bash
+        run: |
+          set -eu
+          if [ -f Makefile ]; then
+            dir="."
+          else
+            mk=$(find . -maxdepth 3 -name Makefile -not -path "*/vitaGL/*" | head -n 1)
+            if [ -z "$mk" ]; then
+              echo "No Makefile anywhere in this repo - are the files uploaded?"
+              ls -la
+              exit 1
+            fi
+            dir=$(dirname "$mk")
+          fi
+          echo "project directory: $dir"
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
       - name: Ensure vitaGL and a host compiler are present
         shell: bash
         run: |
@@ -33,22 +52,15 @@ jobs:
           fi
 
       - name: Verify game logic
+        working-directory: ${{ steps.loc.outputs.dir }}
         run: |
           make check
           make test
 
       - name: Build the VPK
+        working-directory: ${{ steps.loc.outputs.dir }}
         run: make
 
       - uses: actions/upload-artifact@v4
         with:
           name: emberdeep-vpk
-          path: emberdeep.vpk
-          if-no-files-found: error
-
-      - name: Show toolchain versions on failure
-        if: failure()
-        run: |
-          echo "VITASDK=$VITASDK"
-          arm-vita-eabi-gcc --version || true
-          ls -la "$VITASDK/arm-vita-eabi/lib" | head -40 || true
