@@ -32,23 +32,23 @@ jobs:
           echo "project directory: $dir"
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure vitaGL and a host compiler are present
+      - name: Ensure vitaGL and dependencies are present
         shell: bash
         run: |
           set -eu
-          need_apt=0
-          command -v cc  >/dev/null 2>&1 || need_apt=1
-          command -v git >/dev/null 2>&1 || need_apt=1
-          if [ "$need_apt" = "1" ]; then
-            apt-get update
-            apt-get install -y --no-install-recommends build-essential git
-          fi
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential git cmake ca-certificates
+          
           if [ -f "$VITASDK/arm-vita-eabi/lib/libvitaGL.a" ]; then
             echo "vitaGL already in the image"
           else
-            echo "vitaGL missing, building it from source"
-            git clone --depth 1 https://github.com/Rinnegatamante/vitaGL /tmp/vitaGL
-            make -C /tmp/vitaGL -j"$(nproc)" install
+            echo "vitaGL missing, building it and its dependencies via vdpm..."
+            git clone https://github.com/vitasdk/vdpm /tmp/vdpm
+            cd /tmp/vdpm
+            ./bootstrap-vitasdk.sh
+            
+            # This automatically builds math-neon, vitashark, and vitaGL
+            make vitagl 
           fi
 
       - name: Verify game logic
