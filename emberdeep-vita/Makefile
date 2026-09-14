@@ -8,7 +8,7 @@ TITLE_ID := EMBR00001
 TITLE    := Dungeons of the Emberdeep
 VERSION  := 01.00
 
-OBJS := src/main.o src/actors.o src/dungeon.o src/render.o src/font.o
+OBJS := src/main.o src/actors.o src/dungeon.o src/render.o src/texture.o src/font.o
 
 PREFIX := arm-vita-eabi
 CC     := $(PREFIX)-gcc
@@ -67,7 +67,7 @@ test:
 # type-check the Vita-only files without the SDK, using stub headers
 check:
 	cc -fsyntax-only -std=c99 -Wall -Wextra -Wno-unused-parameter \
-		-Isrc -Itests/stubs src/render.c src/main.c
+		-Isrc -Itests/stubs src/render.c src/main.c src/texture.c
 	@echo "render.c and main.c type-check clean"
 
 clean:
