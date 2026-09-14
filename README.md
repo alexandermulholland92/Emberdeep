@@ -16,10 +16,23 @@ Three routes, easiest first. You do **not** need to learn VitaSDK for any of the
 ### 1. GitHub Actions — nothing installed, builds in the cloud
 
 1. Create a repository on GitHub (it can be private).
-2. Upload this whole folder to it, keeping `.github/workflows/build-vpk.yml` in place.
-3. Open the **Actions** tab. The build starts on its own.
-4. When it finishes, open the run and download the **emberdeep-vpk** artifact.
+2. Upload this whole folder to it.
+3. **Create the workflow file inside GitHub.** Drag-and-drop upload skips
+   folders beginning with a dot, so `.github/` usually does not survive the
+   upload. In the repo: **Add file -> Create new file**, type the path
+   `.github/workflows/build-vpk.yml`, and paste the contents of
+   `WORKFLOW-build-vpk.yml.txt` (same text, kept at the top level so it is
+   visible in your file explorer). Commit it.
+
+   It does not matter whether the project ended up at the repo root or one
+   folder deep - the workflow finds the `Makefile` either way.
+4. Open the **Actions** tab. The build starts on its own.
+5. When it finishes, open the run and download the **emberdeep-vpk** artifact.
    Inside is `emberdeep.vpk`.
+
+   If the Actions tab shows a grid of starter workflows ("C/C++ with Make" and
+   so on), the workflow file is not in the repo yet - do step 3. Do not pick
+   one of those cards; they have no VitaSDK in them.
 
 If it fails, open the failed step and copy the log — that is everything needed
 to diagnose it.
