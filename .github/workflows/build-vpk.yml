@@ -31,7 +31,19 @@ jobs:
           fi
           echo "project directory: $dir"
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
-
+      
+      - name: Convert PNGs to 8-bit indexed format for PSVita
+        shell: bash
+        run: |
+          set -eu
+          apt-get update
+          apt-get install -y --no-install-recommends imagemagick
+          echo "Converting PNGs to 8-bit indexed format..."
+          convert sce_sys/icon0.png -colors 256 -type Palette sce_sys/icon0.png
+          convert sce_sys/livearea/contents/bg.png -colors 256 -type Palette sce_sys/livearea/contents/bg.png
+          convert sce_sys/livearea/contents/startup.png -colors 256 -type Palette sce_sys/livearea/contents/startup.png
+          echo "✓ PNG conversion complete"
+          
       - name: Ensure vitaGL and dependencies are present
         shell: bash
         run: |
