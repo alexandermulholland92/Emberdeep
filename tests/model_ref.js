@@ -43,9 +43,9 @@ const modelBlock = slice('function S(m)', '//  PART 4 - GAME');
 let seed = 1;
 const prelude = `
 /* instantiate() clones per-instance materials, so the stub needs clone() */
-function surfMat(surfKey) {
-  var m = { __surf: surfKey };
-  m.clone = function () { return surfMat(surfKey); };
+function surfMat(surfKey, colorHex) {
+  var m = { __surf: surfKey, __col: colorHex };
+  m.clone = function () { return surfMat(surfKey, colorHex); };
   return m;
 }
 /* a couple of places build a MeshStandardMaterial directly off the surface
@@ -113,6 +113,12 @@ function dump(name, root) {
       n.params = g.params;
       n.surf = (o.material && (o.material.__surf
                 || (o.material.map && o.material.map.__surf))) || null;
+      /* part colour: surfMat's colorHex, or a directly built material's
+         .color, which Three has already converted to linear floats */
+      let col = o.material && o.material.__col;
+      if (col === undefined && o.material && o.material.color)
+        col = o.material.color.getHex();
+      n.col = (typeof col === 'number') ? col : null;
     }
     nodes.push(n);
     for (const c of o.children) walk(c, idx);

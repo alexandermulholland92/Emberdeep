@@ -9,7 +9,7 @@ TITLE    := Dungeons of the Emberdeep
 VERSION  := 01.00
 
 OBJS := src/main.o src/actors.o src/dungeon.o src/render.o src/texture.o \
-        src/geom.o src/font.o
+        src/geom.o src/model.o src/model_data.o src/font.o
 
 PREFIX := arm-vita-eabi
 CC     := $(PREFIX)-gcc
@@ -70,8 +70,9 @@ test:
 # type-check the Vita-only files without the SDK, using stub headers
 check:
 	cc -fsyntax-only -std=c99 -Wall -Wextra -Wno-unused-parameter \
-		-Isrc -Itests/stubs src/render.c src/main.c src/texture.c src/geom.c
-	@echo "render.c, main.c, texture.c and geom.c type-check clean"
+		-Isrc -Itests/stubs src/render.c src/main.c src/texture.c src/geom.c \
+		src/model.c src/model_data.c
+	@echo "vita-only sources type-check clean"
 
 # prove the procedural surfaces still match the browser build byte for byte.
 # needs node and a copy of emberdeep.html:  make texcheck HTML=path/to/emberdeep.html
@@ -103,8 +104,19 @@ geomcheck:
 		-o /tmp/emberdeep_geom/dump
 	@python3 tests/geom_check.py /tmp/emberdeep_geom/geoms.json /tmp/emberdeep_geom/dump
 
+# prove the baked model trees still pose exactly as Three.js does.
+#   make modelcheck HTML=path/to/emberdeep.html
+modelcheck:
+	@command -v node >/dev/null || { echo "modelcheck needs node"; exit 1; }
+	@test -f "$(HTML)" || { echo "modelcheck needs the browser build: make modelcheck HTML=path/to/emberdeep.html"; exit 1; }
+	@mkdir -p /tmp/emberdeep_model
+	@node tests/model_ref.js "$(HTML)" > /tmp/emberdeep_model/models.json
+	@cc -std=c99 -Wall -Wextra -O2 -DTEX_HOST_HARNESS -Isrc tests/model_dump.c \
+		src/model.c src/model_data.c src/geom.c -lm -o /tmp/emberdeep_model/dump
+	@python3 tests/model_check.py /tmp/emberdeep_model/models.json /tmp/emberdeep_model/dump
+
 clean:
 	rm -f $(TARGET).vpk $(TARGET).velf $(TARGET).elf $(TARGET).elf.unstripped.elf \
 	      eboot.bin param.sfo $(OBJS)
 
-.PHONY: all clean test check texcheck geomcheck
+.PHONY: all clean test check texcheck geomcheck modelcheck
