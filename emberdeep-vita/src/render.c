@@ -8,17 +8,19 @@
 #include "game.h"
 #include <vitaGL.h>
 #include <stdio.h>
+#include "texture.h"
 
 #define MAX_BATCH_V   36000
 #define MAX_WORLD_V   70000
 
 static float  bpos[MAX_BATCH_V * 3];
 static float  bcol[MAX_BATCH_V * 4];
+static float  btex[MAX_BATCH_V * 2];
 static int    bcount;
 
-static float *wpos;                 /* static world mesh, rebuilt per floor */
-static float *wcol;
-static int    wcount;
+/* the world is split by material so each half can bind its own texture */
+static float *fpos, *fcol, *ftex;   int fcount;   /* floor slabs   */
+static float *kpos, *kcol, *ktex;   int kcount;   /* wall blocks   */
 static int    wfloor = -1;
 
 extern const char *fnt_glyph_rows(char c);   /* font.c: 7 rows of 5 bits */
@@ -91,21 +93,37 @@ static const signed char kCubeFace[6][12] = {
 
 static void batch_reset(void) { bcount = 0; }
 
-static void push_vert(float *vp, float *cp, int *n,
+/* submit whatever is in the dynamic batch under one texture, then clear it */
+static void batch_flush(GLuint tex) {
+    if (bcount <= 0) return;
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glVertexPointer(3, GL_FLOAT, 0, bpos);
+    glColorPointer(4, GL_FLOAT, 0, bcol);
+    glTexCoordPointer(2, GL_FLOAT, 0, btex);
+    glDrawArrays(GL_TRIANGLES, 0, bcount);
+    bcount = 0;
+}
+
+static void push_vert(float *vp, float *cp, float *tp, int *n,
                       float x, float y, float z,
-                      float r, float g, float b, float a) {
+                      float r, float g, float b, float a,
+                      float u, float v) {
     int i = *n;
     vp[i * 3] = x; vp[i * 3 + 1] = y; vp[i * 3 + 2] = z;
     cp[i * 4] = r; cp[i * 4 + 1] = g; cp[i * 4 + 2] = b; cp[i * 4 + 3] = a;
+    if (tp) { tp[i * 2] = u; tp[i * 2 + 1] = v; }
     *n = i + 1;
 }
 
 /* an axis-aligned box, optionally spun about Y, written into a target buffer */
-static void emit_box(float *vp, float *cp, int *n, int cap,
+static void emit_box(float *vp, float *cp, float *tp, int *n, int cap,
                      float cx, float cy, float cz,
                      float sx, float sy, float sz, float rotY,
-                     float r, float g, float b, float a, float lightMul) {
+                     float r, float g, float b, float a, float lightMul,
+                     float uvScale) {
     float ca = cosf(rotY), sa = sinf(rotY);
+    static const float qu[4] = { 0.f, 1.f, 1.f, 0.f };
+    static const float qv[4] = { 0.f, 0.f, 1.f, 1.f };
     int f, k;
     if (*n + 36 > cap) return;
     for (f = 0; f < 6; f++) {
@@ -120,30 +138,30 @@ static void emit_box(float *vp, float *cp, int *n, int cap,
             py[k] = cy + ly;
             pz[k] = cz - lx * sa + lz * ca;
         }
-        push_vert(vp, cp, n, px[0], py[0], pz[0], fr, fg, fb, a);
-        push_vert(vp, cp, n, px[1], py[1], pz[1], fr, fg, fb, a);
-        push_vert(vp, cp, n, px[2], py[2], pz[2], fr, fg, fb, a);
-        push_vert(vp, cp, n, px[0], py[0], pz[0], fr, fg, fb, a);
-        push_vert(vp, cp, n, px[2], py[2], pz[2], fr, fg, fb, a);
-        push_vert(vp, cp, n, px[3], py[3], pz[3], fr, fg, fb, a);
+        push_vert(vp, cp, tp, n, px[0], py[0], pz[0], fr, fg, fb, a, qu[0]*uvScale, qv[0]*uvScale);
+        push_vert(vp, cp, tp, n, px[1], py[1], pz[1], fr, fg, fb, a, qu[1]*uvScale, qv[1]*uvScale);
+        push_vert(vp, cp, tp, n, px[2], py[2], pz[2], fr, fg, fb, a, qu[2]*uvScale, qv[2]*uvScale);
+        push_vert(vp, cp, tp, n, px[0], py[0], pz[0], fr, fg, fb, a, qu[0]*uvScale, qv[0]*uvScale);
+        push_vert(vp, cp, tp, n, px[2], py[2], pz[2], fr, fg, fb, a, qu[2]*uvScale, qv[2]*uvScale);
+        push_vert(vp, cp, tp, n, px[3], py[3], pz[3], fr, fg, fb, a, qu[3]*uvScale, qv[3]*uvScale);
     }
 }
 static void box(float cx, float cy, float cz, float sx, float sy, float sz,
                 float rotY, float r, float g, float b, float lightMul) {
-    emit_box(bpos, bcol, &bcount, MAX_BATCH_V, cx, cy, cz, sx, sy, sz, rotY,
-             r, g, b, 1.f, lightMul);
+    emit_box(bpos, bcol, btex, &bcount, MAX_BATCH_V, cx, cy, cz, sx, sy, sz, rotY,
+             r, g, b, 1.f, lightMul, 1.f);
 }
 /* flat ground quad, used for shadows, the portal disc and telegraph rings */
 static void ground_quad(float cx, float cz, float size,
                         float r, float g, float b, float a) {
     float h = size * 0.5f, y = 0.06f;
     if (bcount + 6 > MAX_BATCH_V) return;
-    push_vert(bpos, bcol, &bcount, cx - h, y, cz - h, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, cx + h, y, cz - h, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, cx + h, y, cz + h, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, cx - h, y, cz - h, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, cx + h, y, cz + h, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, cx - h, y, cz + h, r, g, b, a);
+    push_vert(bpos, bcol, btex, &bcount, cx - h, y, cz - h, r, g, b, a, 0.f, 0.f);
+    push_vert(bpos, bcol, btex, &bcount, cx + h, y, cz - h, r, g, b, a, 1.f, 0.f);
+    push_vert(bpos, bcol, btex, &bcount, cx + h, y, cz + h, r, g, b, a, 1.f, 1.f);
+    push_vert(bpos, bcol, btex, &bcount, cx - h, y, cz - h, r, g, b, a, 0.f, 0.f);
+    push_vert(bpos, bcol, btex, &bcount, cx + h, y, cz + h, r, g, b, a, 1.f, 1.f);
+    push_vert(bpos, bcol, btex, &bcount, cx - h, y, cz + h, r, g, b, a, 0.f, 1.f);
 }
 
 /* ---------------- palettes ---------------- */
@@ -246,7 +264,7 @@ static void build_world(void) {
     const float *ft = kFloorTint[G.depth];
     const float *wt = kWallTint[G.depth];
     const float *tc = kTorch[G.depth];
-    wcount = 0;
+    fcount = 0; kcount = 0;
     collect_torches();
     for (gx = 0; gx < GRID; gx++) {
         for (gy = 0; gy < GRID; gy++) {
@@ -257,9 +275,9 @@ static void build_world(void) {
                 float wr = ft[0] * j * L + tc[0] * (L - 0.30f) * 0.10f;
                 float wg = ft[1] * j * L + tc[1] * (L - 0.30f) * 0.10f;
                 float wb = ft[2] * j * L + tc[2] * (L - 0.30f) * 0.10f;
-                emit_box(wpos, wcol, &wcount, MAX_WORLD_V,
+                emit_box(fpos, fcol, ftex, &fcount, MAX_WORLD_V,
                          wx, -0.04f, wz, CELL - 0.09f, 0.10f, CELL - 0.09f, 0.f,
-                         wr, wg, wb, 1.f, 1.f);
+                         wr, wg, wb, 1.f, 1.f, 1.f);
             } else {
                 int touching = 0, ox, oy;
                 for (ox = -1; ox <= 1 && !touching; ox++)
@@ -271,9 +289,10 @@ static void build_world(void) {
                 if (touching) {
                     float j = 0.88f + ((gx * 5 + gy * 11) % 9) * 0.028f;
                     float L = baked_light(wx, wz);
-                    emit_box(wpos, wcol, &wcount, MAX_WORLD_V,
+                    /* walls tile the masonry twice over their height */
+                    emit_box(kpos, kcol, ktex, &kcount, MAX_WORLD_V,
                              wx, WALL_H * 0.5f, wz, CELL, WALL_H, CELL, 0.f,
-                             wt[0] * j * L, wt[1] * j * L, wt[2] * j * L, 1.f, 1.f);
+                             wt[0] * j * L, wt[1] * j * L, wt[2] * j * L, 1.f, 1.f, 2.f);
                 }
             }
         }
@@ -282,11 +301,23 @@ static void build_world(void) {
 }
 
 /* the world mesh is static, so relight it per frame by scaling its colours */
-/* lighting is baked into the vertex colours, so this is a single draw call */
+/* lighting is baked into the vertex colours; the texture modulates on top,
+   so each material is one draw call */
 static void draw_world(void) {
-    glVertexPointer(3, GL_FLOAT, 0, wpos);
-    glColorPointer(4, GL_FLOAT, 0, wcol);
-    glDrawArrays(GL_TRIANGLES, 0, wcount);
+    glEnable(GL_TEXTURE_2D);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
+    glBindTexture(GL_TEXTURE_2D, gTex.floor);
+    glVertexPointer(3, GL_FLOAT, 0, fpos);
+    glColorPointer(4, GL_FLOAT, 0, fcol);
+    glTexCoordPointer(2, GL_FLOAT, 0, ftex);
+    glDrawArrays(GL_TRIANGLES, 0, fcount);
+
+    glBindTexture(GL_TEXTURE_2D, gTex.wall);
+    glVertexPointer(3, GL_FLOAT, 0, kpos);
+    glColorPointer(4, GL_FLOAT, 0, kcol);
+    glTexCoordPointer(2, GL_FLOAT, 0, ktex);
+    glDrawArrays(GL_TRIANGLES, 0, kcount);
 }
 
 /* ---------------- actors ---------------- */
@@ -378,12 +409,12 @@ static void draw_particles(void) {
 static void hud_rect(float x, float y, float w, float h,
                      float r, float g, float b, float a) {
     if (bcount + 6 > MAX_BATCH_V) return;
-    push_vert(bpos, bcol, &bcount, x,     y,     0.f, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, x + w, y,     0.f, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, x + w, y + h, 0.f, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, x,     y,     0.f, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, x + w, y + h, 0.f, r, g, b, a);
-    push_vert(bpos, bcol, &bcount, x,     y + h, 0.f, r, g, b, a);
+    push_vert(bpos, bcol, btex, &bcount, x,     y,     0.f, r, g, b, a, 0.f, 0.f);
+    push_vert(bpos, bcol, btex, &bcount, x + w, y,     0.f, r, g, b, a, 1.f, 0.f);
+    push_vert(bpos, bcol, btex, &bcount, x + w, y + h, 0.f, r, g, b, a, 1.f, 1.f);
+    push_vert(bpos, bcol, btex, &bcount, x,     y,     0.f, r, g, b, a, 0.f, 0.f);
+    push_vert(bpos, bcol, btex, &bcount, x + w, y + h, 0.f, r, g, b, a, 1.f, 1.f);
+    push_vert(bpos, bcol, btex, &bcount, x,     y + h, 0.f, r, g, b, a, 0.f, 1.f);
 }
 
 static void hud_text(float x, float y, float px, const char *s,
@@ -498,9 +529,13 @@ static void draw_overlay_screen(void) {
 
 /* ---------------- frame ---------------- */
 int rd_init(void) {
-    wpos = (float *)malloc(sizeof(float) * MAX_WORLD_V * 3);
-    wcol = (float *)malloc(sizeof(float) * MAX_WORLD_V * 4);
-    if (!wpos || !wcol) return 0;
+    fpos = (float *)malloc(sizeof(float) * MAX_WORLD_V * 3);
+    fcol = (float *)malloc(sizeof(float) * MAX_WORLD_V * 4);
+    ftex = (float *)malloc(sizeof(float) * MAX_WORLD_V * 2);
+    kpos = (float *)malloc(sizeof(float) * MAX_WORLD_V * 3);
+    kcol = (float *)malloc(sizeof(float) * MAX_WORLD_V * 4);
+    ktex = (float *)malloc(sizeof(float) * MAX_WORLD_V * 2);
+    if (!fpos || !fcol || !ftex || !kpos || !kcol || !ktex) return 0;
 
     vglInit(0x800000);
     glEnable(GL_DEPTH_TEST);
@@ -509,12 +544,23 @@ int rd_init(void) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glEnable(GL_TEXTURE_2D);
+    /* MODULATE multiplies texture by vertex colour, which is where the tint
+       and the baked lighting live */
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     glClearColor(0.03f, 0.03f, 0.05f, 1.f);
+
+    if (!tex_build()) return 0;
     return 1;
 }
 void rd_shutdown(void) {
-        free(wpos); free(wcol);
-    /* vglEnd(); */  /* Remove or replace with correct vitaGL shutdown */
+    /* vitaGL exposes no teardown call - releasing our own buffers is all there
+       is to do, and process exit tears GXM down. */
+    tex_free();
+    free(fpos); free(fcol); free(ftex);
+    free(kpos); free(kcol); free(ktex);
+    fpos = fcol = ftex = kpos = kcol = ktex = NULL;
 }
 
 void rd_frame(float dt) {
@@ -548,11 +594,11 @@ void rd_frame(float dt) {
 
         batch_reset();
         draw_actors();
+        batch_flush(gTex.actor);          /* bodies carry the cloth/hide grain */
+
         draw_projectiles();
         draw_particles();
-        glVertexPointer(3, GL_FLOAT, 0, bpos);
-        glColorPointer(4, GL_FLOAT, 0, bcol);
-        glDrawArrays(GL_TRIANGLES, 0, bcount);
+        batch_flush(gTex.white);          /* effects stay flat and bright */
     }
 
     /* 2D pass */
@@ -567,9 +613,7 @@ void rd_frame(float dt) {
         batch_reset();
         if (G.state == ST_PLAY) draw_hud();
         else draw_overlay_screen();
-        glVertexPointer(3, GL_FLOAT, 0, bpos);
-        glColorPointer(4, GL_FLOAT, 0, bcol);
-        glDrawArrays(GL_TRIANGLES, 0, bcount);
+        batch_flush(gTex.white);
     }
 
     vglSwapBuffers(GL_FALSE);
