@@ -24,6 +24,9 @@ LIBS := -lvitaGL -lvitashark -lSceShaccCgExt -lmathneon \
         -lSceSysmodule_stub -lSceCtrl_stub -lSceAppMgr_stub \
         -lSceCommonDialog_stub -lm
 
+# C++ standard library support for vitaGL
+LDLIBS := -lstdc++ -lsupc++
+
 all: $(TARGET).vpk
 
 $(TARGET).vpk: eboot.bin param.sfo
@@ -49,7 +52,7 @@ $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
 
 $(TARGET).elf: $(OBJS)
-	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
+	$(CC) $(CFLAGS) $^ $(LIBS) $(LDLIBS) -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
