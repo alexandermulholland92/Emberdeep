@@ -23,6 +23,9 @@ LIBS := -lvitaGL -lvitashark -lSceShaccCgExt -lmathneon \
         -lSceKernelDmacMgr_stub -lSceGxm_stub -lSceDisplay_stub \
         -lSceSysmodule_stub -lSceCtrl_stub -lSceAppMgr_stub \
         -lSceCommonDialog_stub -lm
+# vitaGL is C++, so the C driver needs the C++ runtime explicitly or the link
+# fails with undefined __cxa_* / operator new references
+LDLIBS += -lstdc++ -lsupc++
 
 all: $(TARGET).vpk
 
@@ -49,7 +52,7 @@ $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
 
 $(TARGET).elf: $(OBJS)
-	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
+	$(CC) $(CFLAGS) $^ $(LIBS) $(LDLIBS) -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@

@@ -108,6 +108,7 @@ boss, a gate opens, step into it to descend. Clear floor three to win.
 src/dungeon.c    room + corridor generation, grid collision, wall sliding
 src/actors.c     class/enemy tables, abilities, status effects, AI, progression
 src/render.c     vitaGL drawing — CPU-batched geometry, baked lighting, HUD
+src/texture.c    procedural stone/masonry/hide textures generated at load
 src/font.c       5x7 bitmap font for the HUD
 src/main.c       entry point, controller input, frame loop, RNG
 tests/host_test.c  desktop harness that plays the game with a pathfinding bot
