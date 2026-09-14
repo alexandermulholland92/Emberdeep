@@ -307,13 +307,13 @@ static void draw_world(void) {
     glEnable(GL_TEXTURE_2D);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-    glBindTexture(GL_TEXTURE_2D, gTex.floor);
+    glBindTexture(GL_TEXTURE_2D, gTex.surf[SURF_FLOOR_STONE]);
     glVertexPointer(3, GL_FLOAT, 0, fpos);
     glColorPointer(4, GL_FLOAT, 0, fcol);
     glTexCoordPointer(2, GL_FLOAT, 0, ftex);
     glDrawArrays(GL_TRIANGLES, 0, fcount);
 
-    glBindTexture(GL_TEXTURE_2D, gTex.wall);
+    glBindTexture(GL_TEXTURE_2D, gTex.surf[SURF_WALL_MASON]);
     glVertexPointer(3, GL_FLOAT, 0, kpos);
     glColorPointer(4, GL_FLOAT, 0, kcol);
     glTexCoordPointer(2, GL_FLOAT, 0, ktex);
@@ -352,31 +352,60 @@ static void draw_biped(float x, float z, float facing, float scale,
         c.r * 0.85f, c.g * 0.85f, c.b * 0.85f, k);
 }
 
+/* Body material, taken from the browser build's own model definitions: a
+   biped's torso uses cfg.clothSurf (default 'cloth'), the beasts use the
+   surface their builder passes. The browser skins each part separately -
+   skin, cloth, metal trim, leather straps - which needs the jointed model,
+   so until that lands each body is drawn in its dominant material. */
+static int enemy_surface(int type) {
+    switch (type) {
+        case E_SKELETON:                      /* skinSurf/clothSurf: 'bone' */
+        case E_HOUND:                         /* buildQuadruped surf: 'bone' */
+        case B_COLOSSUS:                      /* clothSurf: 'bone' */
+            return SURF_BONE;
+        case E_GOLEM:                         /* clothSurf/trimSurf: 'rock' */
+            return SURF_ROCK;
+        case E_SPIDER:                        /* buildArachnid body */
+        case E_IMP:                           /* buildImp body */
+            return SURF_HIDE;
+        default:
+            return SURF_CLOTH;
+    }
+}
+static int class_surface(int cls) { (void)cls; return SURF_CLOTH; }
+
+/* bodies are grouped by material so each surface costs one bind and one draw */
 static void draw_actors(void) {
-    int i;
-    /* player */
-    if (G.pl.alive) {
-        Col c = class_colour(G.pl.cls);
-        float f = G.pl.invuln > 0.f ? 1.35f : 1.f;
-        draw_biped(G.pl.pos.x, G.pl.pos.z, G.pl.facing, 1.f,
-                   col_of(c.r * f, c.g * f, c.b * f), G.pl.walkT, G.pl.atkAnim, 0.f);
+    int s, i;
+    for (s = 0; s < SURF_COUNT; s++) {
+        batch_reset();
+        if (G.pl.alive && class_surface(G.pl.cls) == s) {
+            Col c = class_colour(G.pl.cls);
+            float f = G.pl.invuln > 0.f ? 1.35f : 1.f;
+            draw_biped(G.pl.pos.x, G.pl.pos.z, G.pl.facing, 1.f,
+                       col_of(c.r * f, c.g * f, c.b * f), G.pl.walkT, G.pl.atkAnim, 0.f);
+        }
+        for (i = 0; i < MAX_ENEMY; i++) {
+            Enemy *e = &G.en[i];
+            Col c;
+            float sc;
+            if (!e->active) continue;
+            if (enemy_surface(e->type) != s) continue;
+            c = enemy_colour(e->type);
+            if (e->flash > 0.f) { c.r = 1.f; c.g = 1.f; c.b = 1.f; }
+            sc = gEnemyDef[e->type].scale;
+            if (e->dying) sc *= (e->deathT / e->deathDur);
+            if (sc < 0.05f) continue;
+            draw_biped(e->pos.x, e->pos.z, e->facing, sc, c, e->walkT, e->atkAnim, e->baseY);
+        }
+        batch_flush(gTex.surf[s]);
     }
-    for (i = 0; i < MAX_ENEMY; i++) {
-        Enemy *e = &G.en[i];
-        Col c;
-        float s;
-        if (!e->active) continue;
-        c = enemy_colour(e->type);
-        if (e->flash > 0.f) { c.r = 1.f; c.g = 1.f; c.b = 1.f; }
-        s = gEnemyDef[e->type].scale;
-        if (e->dying) s *= (e->deathT / e->deathDur);
-        if (s < 0.05f) continue;
-        draw_biped(e->pos.x, e->pos.z, e->facing, s, c, e->walkT, e->atkAnim, e->baseY);
-    }
-    /* portal */
+    /* the portal is an effect, not a body */
     if (G.portalOn) {
         float pulse = 0.6f + sinf(G.elapsed * 3.f) * 0.25f;
+        batch_reset();
         ground_quad(G.portalPos.x, G.portalPos.z, 2.6f, 0.35f, 0.75f, 1.f, pulse);
+        batch_flush(gTex.white);
     }
 }
 
@@ -592,10 +621,9 @@ void rd_frame(float dt) {
         glEnable(GL_DEPTH_TEST);
         draw_world();
 
-        batch_reset();
-        draw_actors();
-        batch_flush(gTex.actor);          /* bodies carry the cloth/hide grain */
+        draw_actors();                    /* binds and flushes per body material */
 
+        batch_reset();
         draw_projectiles();
         draw_particles();
         batch_flush(gTex.white);          /* effects stay flat and bright */

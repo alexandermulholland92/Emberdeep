@@ -72,8 +72,26 @@ check:
 		-Isrc -Itests/stubs src/render.c src/main.c src/texture.c
 	@echo "render.c and main.c type-check clean"
 
+# prove the procedural surfaces still match the browser build byte for byte.
+# needs node and a copy of emberdeep.html:  make texcheck HTML=path/to/emberdeep.html
+HTML ?= emberdeep.html
+texcheck:
+	@command -v node >/dev/null || { echo "texcheck needs node"; exit 1; }
+	@test -f "$(HTML)" || { echo "texcheck needs the browser build: make texcheck HTML=path/to/emberdeep.html"; exit 1; }
+	@rm -rf /tmp/emberdeep_tex && mkdir -p /tmp/emberdeep_tex/ref /tmp/emberdeep_tex/got
+	@node tests/tex_ref.js "$(HTML)" /tmp/emberdeep_tex/ref >/dev/null
+	@cc -std=c99 -Wall -Wextra -O2 -DTEX_HOST_HARNESS -Isrc \
+		tests/tex_dump.c src/texture.c -lm -o /tmp/emberdeep_tex/dump
+	@/tmp/emberdeep_tex/dump /tmp/emberdeep_tex/got >/dev/null
+	@fail=0; for f in floorStone wallMason rock bone cloth leather metal wood skin hide; do \
+		if cmp -s /tmp/emberdeep_tex/ref/$$f.raw /tmp/emberdeep_tex/got/$$f.raw; then \
+			printf "  %-11s exact match\n" "$$f"; \
+		else printf "  %-11s DIFFERS\n" "$$f"; fail=1; fi; done; \
+	if [ $$fail = 0 ]; then echo "all 10 surfaces byte-identical to the browser build"; \
+	else echo "surface mismatch"; exit 1; fi
+
 clean:
 	rm -f $(TARGET).vpk $(TARGET).velf $(TARGET).elf $(TARGET).elf.unstripped.elf \
 	      eboot.bin param.sfo $(OBJS)
 
-.PHONY: all clean test check
+.PHONY: all clean test check texcheck
