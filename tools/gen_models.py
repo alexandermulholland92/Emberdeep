@@ -113,9 +113,15 @@ def main():
         c.write('const ModelDef kModels[MODEL_COUNT] = {\n')
         for m in models:
             legs = len(m['joints'].get('legs', []))
-            c.write('    { "%s", %s, %d, %d, k%s },\n'
+            mask = []
+            for n in m['nodes']:
+                j = joint_of(n['name'])
+                if j != 'JOINT_NONE':
+                    mask.append('(1u << %s)' % j)
+            expr = ' | '.join(sorted(set(mask))) or '0u'
+            c.write('    { "%s", %s, %d, %d,\n      %s,\n      k%s },\n'
                     % (m['name'], KIND.get(m['kind'], 'MKIND_BIPED'), legs,
-                       len(m['nodes']), ident(m['name']).title()))
+                       len(m['nodes']), expr, ident(m['name']).title()))
         c.write('};\n')
 
     print('wrote %s/model_data.{h,c}: %d models, %d nodes'

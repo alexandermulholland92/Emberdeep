@@ -9,7 +9,7 @@ TITLE    := Dungeons of the Emberdeep
 VERSION  := 01.00
 
 OBJS := src/main.o src/actors.o src/dungeon.o src/render.o src/texture.o \
-        src/geom.o src/model.o src/model_data.o src/font.o
+        src/geom.o src/model.o src/model_data.o src/anim.o src/font.o
 
 PREFIX := arm-vita-eabi
 CC     := $(PREFIX)-gcc
@@ -71,7 +71,7 @@ test:
 check:
 	cc -fsyntax-only -std=c99 -Wall -Wextra -Wno-unused-parameter \
 		-Isrc -Itests/stubs src/render.c src/main.c src/texture.c src/geom.c \
-		src/model.c src/model_data.c
+		src/model.c src/model_data.c src/anim.c
 	@echo "vita-only sources type-check clean"
 
 # prove the procedural surfaces still match the browser build byte for byte.
@@ -115,8 +115,20 @@ modelcheck:
 		src/model.c src/model_data.c src/geom.c -lm -o /tmp/emberdeep_model/dump
 	@python3 tests/model_check.py /tmp/emberdeep_model/models.json /tmp/emberdeep_model/dump
 
+# prove the ported animateActor still poses identically to the browser's.
+#   make animcheck HTML=path/to/emberdeep.html
+animcheck:
+	@command -v node >/dev/null || { echo "animcheck needs node"; exit 1; }
+	@test -f "$(HTML)" || { echo "animcheck needs the browser build: make animcheck HTML=path/to/emberdeep.html"; exit 1; }
+	@mkdir -p /tmp/emberdeep_anim
+	@node tests/model_ref.js "$(HTML)" --anim > /tmp/emberdeep_anim/anim.json
+	@cc -std=c99 -Wall -Wextra -O2 -DTEX_HOST_HARNESS -Isrc tests/anim_dump.c \
+		src/anim.c src/model.c src/model_data.c src/geom.c -lm \
+		-o /tmp/emberdeep_anim/dump
+	@python3 tests/anim_check.py /tmp/emberdeep_anim/anim.json /tmp/emberdeep_anim/dump
+
 clean:
 	rm -f $(TARGET).vpk $(TARGET).velf $(TARGET).elf $(TARGET).elf.unstripped.elf \
 	      eboot.bin param.sfo $(OBJS)
 
-.PHONY: all clean test check texcheck geomcheck modelcheck
+.PHONY: all clean test check texcheck geomcheck modelcheck animcheck

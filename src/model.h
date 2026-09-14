@@ -54,8 +54,13 @@ typedef struct ModelDefTag {
     unsigned char kind;
     unsigned char legs;
     short nodeCount;
+    unsigned int jointMask;   /* bit per JOINT_*, so the animation can ask
+                                 the same questions the browser asks of
+                                 userData (does this rig have armR?) */
     const ModelNode *nodes;
 } ModelDef;
+
+#define MODEL_HAS(m, j) (((m)->jointMask >> (j)) & 1u)
 
 /* model ids and the table itself live in model_data.h */
 #include "model_data.h"
@@ -69,11 +74,22 @@ void m4_compose(const float pos[3], const float rot[3], const float scale[3],
 void m4_mul(const M4 *a, const M4 *b, M4 *out);       /* out = a * b */
 void m4_apply(const M4 *m, const float p[3], float out[3]);
 
-/* Fill `out` (model->nodeCount entries) with world matrices.
-   `jointRot` is JOINT_COUNT * 3 floats of extra Euler XYZ rotation applied
-   on top of each joint's rest pose, or NULL for the rest pose. `root` is
+/* A posed rig. animateActor assigns joint rotations outright rather than
+   adding to them, so a Pose carries absolute Euler angles, seeded from the
+   model's rest pose and then written in place frame after frame - the same
+   way Three keeps them on the Object3D. */
+typedef struct {
+    float rot[JOINT_COUNT][3];
+    float bodyZ;          /* the body node's position.z, which beasts lunge with */
+} Pose;
+
+/* Seed a pose from the model's rest rotations. */
+void pose_init(const ModelDef *model, Pose *pose);
+
+/* Fill `out` (model->nodeCount entries) with world matrices. `pose` supplies
+   the rotation for every joint node, or NULL to use the rest pose. `root` is
    the actor's world placement, or NULL for the identity. */
-void model_world(const ModelDef *model, const float *jointRot, const M4 *root,
+void model_world(const ModelDef *model, const Pose *pose, const M4 *root,
                  M4 *out);
 
 /* Walk the model and hand every triangle to `fn`, already in world space.
@@ -81,7 +97,7 @@ void model_world(const ModelDef *model, const float *jointRot, const M4 *root,
    `uv` is 6. */
 typedef void (*ModelTriFn)(void *ctx, int surf, const float *col,
                            const float *pos, const float *uv);
-void model_emit(const ModelDef *model, const float *jointRot, const M4 *root,
+void model_emit(const ModelDef *model, const Pose *pose, const M4 *root,
                 ModelTriFn fn, void *ctx);
 
 /* Same, but against world matrices the caller already computed, and

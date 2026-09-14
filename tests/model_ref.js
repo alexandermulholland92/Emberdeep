@@ -143,6 +143,36 @@ for (const roster of [env.ENEMIES, env.BOSSES])
   if (roster) for (const k of Object.keys(roster))
     if (roster[k].model) models.push([k, roster[k].model]);
 
+/* --anim: run the page's own animateActor over a fixed script and dump the
+   resulting world matrices, so the C port can be diffed frame-exactly */
+if (process.argv.includes('--anim')) {
+  const mathBlock = slice('function clamp(v, a, b)', 'function dist2D');
+  const animBlock = slice('function animateActor(ent, dt, moving)', 'function flashModel(');
+  /* both blocks declare plain functions; evaluate them into one scope */
+  const scope = new Function(mathBlock + animBlock +
+                             'return { animateActor: animateActor, swing: swing };')();
+  const out = [];
+  for (const [name, make] of models) {
+    const root = make();
+    const ent = { obj: root, baseY: 0, walkT: 0, floatT: 0,
+                  atkAnim: 0, atkAnimDur: 0.3, atkSwing: 1.4,
+                  telegraphing: false };
+    const dt = 1 / 60;
+    for (let f = 0; f < 90; f++) {
+      if (f === 20) scope.swing(ent, 1.4, 0.3);
+      scope.animateActor(ent, dt, f < 60);
+    }
+    root.updateMatrixWorld(true);
+    const nodes = [];
+    (function walk(o) { nodes.push(o.matrixWorld.elements.map(r6));
+                        for (const c of o.children) walk(c); })(root);
+    out.push({ name, walkT: r6(ent.walkT), floatT: r6(ent.floatT),
+               rootY: r6(root.position.y), nodes });
+  }
+  process.stdout.write(JSON.stringify(out, null, 1) + '\n');
+  process.exit(0);
+}
+
 /* --geom: dump the tessellated vertices Three produces for every distinct
    geometry used, so the C tessellator can be diffed against them */
 if (process.argv.includes('--geom')) {

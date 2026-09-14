@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include "texture.h"
 #include "model.h"
+#include "anim.h"
 
 #define MAX_BATCH_V   36000
 #define MAX_WORLD_V   70000
@@ -349,7 +350,7 @@ static void actor_tri(void *ctx, int surf, const float *col,
 
 /* Pose the model once, then draw it one surface at a time so each
    material costs a single bind and a single draw. */
-static void draw_model(int modelId, float x, float y, float z,
+static void draw_model(int modelId, const Pose *pose, float x, float y, float z,
                        float facing, float scale, float light, int flash) {
     const ModelDef *md = model_get(modelId);
     M4 root, world[MODEL_MAX_NODES];
@@ -362,8 +363,7 @@ static void draw_model(int modelId, float x, float y, float z,
     rot[0] = 0.f; rot[1] = facing; rot[2] = 0.f;
     sc[0] = sc[1] = sc[2] = scale;
     m4_compose(p, rot, sc, &root);
-    /* rest pose for now - the joint animation lands in the next stage */
-    model_world(md, 0, &root, world);
+    model_world(md, pose, &root, world);
 
     actx.light = light;
     actx.flash = flash;
@@ -374,7 +374,42 @@ static void draw_model(int modelId, float x, float y, float z,
     }
 }
 
-static void draw_actors(void) {
+/* One animated actor. The clocks and eased joints live here rather than in
+   the simulation, which is where the browser keeps them too - animateActor
+   owns walkT, not the update loop. */
+typedef struct {
+    ActorAnim anim;
+    int   bound;        /* model id + 1, so zeroed memory reads as unbound */
+    float prevAtk;      /* to catch the frame a swing starts */
+} ActorSlot;
+
+static ActorSlot gPlayerSlot;
+static ActorSlot gEnemySlot[MAX_ENEMY];
+
+static void slot_step(ActorSlot *s, int modelId, float dt, float x, float z,
+                      float baseY, float simAtk, int telegraphing) {
+    int moving;
+    if (s->bound != modelId + 1) {
+        s->bound = modelId + 1;
+        anim_init(&s->anim, model_get(modelId));
+        s->anim.lastX = x;
+        s->anim.lastZ = z;
+        s->prevAtk = 0.f;
+    }
+    /* the simulation does not flag movement, so infer it from the step taken */
+    moving = (fabsf(x - s->anim.lastX) + fabsf(z - s->anim.lastZ)) > 0.002f;
+    s->anim.lastX = x;
+    s->anim.lastZ = z;
+
+    /* a rising attack timer is the frame the swing was thrown; the duration
+       the simulation set becomes the swing's length */
+    if (simAtk > s->prevAtk) anim_swing(&s->anim, 1.4f, simAtk);
+    s->prevAtk = simAtk;
+
+    anim_update(&s->anim, dt, moving, telegraphing, baseY);
+}
+
+static void draw_actors(float dt) {
     int i;
 
     /* blob shadows and the portal disc share the untextured pass */
@@ -398,10 +433,13 @@ static void draw_actors(void) {
 
     /* bodies */
     if (G.pl.alive) {
+        int mid = model_for_class(G.pl.cls);
         float k = light_at(G.pl.pos.x, G.pl.pos.z);
         if (G.pl.invuln > 0.f) k *= 1.35f;
-        draw_model(model_for_class(G.pl.cls), G.pl.pos.x, 0.f, G.pl.pos.z,
-                   G.pl.facing, 1.f, k, 0);
+        slot_step(&gPlayerSlot, mid, dt, G.pl.pos.x, G.pl.pos.z, 0.f,
+                  G.pl.atkAnim, 0);
+        draw_model(mid, &gPlayerSlot.anim.pose, G.pl.pos.x,
+                   gPlayerSlot.anim.rootY, G.pl.pos.z, G.pl.facing, 1.f, k, 0);
     }
     for (i = 0; i < MAX_ENEMY; i++) {
         Enemy *e = &G.en[i];
@@ -410,8 +448,14 @@ static void draw_actors(void) {
         sc = gEnemyDef[e->type].scale;
         if (e->dying) sc *= (e->deathT / e->deathDur);
         if (sc < 0.05f) continue;
-        draw_model(model_for_enemy(e->type), e->pos.x, e->baseY, e->pos.z,
-                   e->facing, sc, light_at(e->pos.x, e->pos.z), e->flash > 0.f);
+        {
+            int mid = model_for_enemy(e->type);
+            slot_step(&gEnemySlot[i], mid, dt, e->pos.x, e->pos.z, e->baseY,
+                      e->atkAnim, e->bossState == 1);
+            draw_model(mid, &gEnemySlot[i].anim.pose, e->pos.x,
+                       gEnemySlot[i].anim.rootY, e->pos.z, e->facing, sc,
+                       light_at(e->pos.x, e->pos.z), e->flash > 0.f);
+        }
     }
 }
 
@@ -605,7 +649,6 @@ void rd_frame(float dt) {
     V3 eye, at, up;
     float sh = G.shake;
 
-    (void)dt;
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     if (G.state == ST_PLAY || G.state == ST_DEAD || G.state == ST_WIN) {
@@ -629,7 +672,7 @@ void rd_frame(float dt) {
         glEnable(GL_DEPTH_TEST);
         draw_world();
 
-        draw_actors();                    /* binds and flushes per body material */
+        draw_actors(dt);                  /* binds and flushes per body material */
 
         batch_reset();
         draw_projectiles();

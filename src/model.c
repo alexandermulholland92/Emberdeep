@@ -73,21 +73,38 @@ void m4_apply(const M4 *m, const float p[3], float out[3]) {
     out[2] = t[2] * x + t[6] * y + t[10] * z + t[14];
 }
 
-void model_world(const ModelDef *model, const float *jointRot, const M4 *root,
+void pose_init(const ModelDef *model, Pose *pose) {
+    int i, k;
+    if (!model || !pose) return;
+    for (i = 0; i < JOINT_COUNT; i++)
+        pose->rot[i][0] = pose->rot[i][1] = pose->rot[i][2] = 0.f;
+    pose->bodyZ = 0.f;
+    for (i = 0; i < model->nodeCount; i++) {
+        const ModelNode *n = &model->nodes[i];
+        if (n->joint == JOINT_NONE) continue;
+        for (k = 0; k < 3; k++) pose->rot[n->joint][k] = n->rot[k];
+        if (n->joint == JOINT_BODY) pose->bodyZ = n->pos[2];
+    }
+}
+
+void model_world(const ModelDef *model, const Pose *pose, const M4 *root,
                  M4 *out) {
     int i;
     if (!model) return;
     for (i = 0; i < model->nodeCount; i++) {
         const ModelNode *n = &model->nodes[i];
-        float rot[3];
+        float rot[3], pos[3];
         M4 local;
         rot[0] = n->rot[0]; rot[1] = n->rot[1]; rot[2] = n->rot[2];
-        /* the rig animates by adding to a joint's rest rotation */
-        if (jointRot && n->joint != JOINT_NONE) {
-            const float *j = &jointRot[n->joint * 3];
-            rot[0] += j[0]; rot[1] += j[1]; rot[2] += j[2];
+        pos[0] = n->pos[0]; pos[1] = n->pos[1]; pos[2] = n->pos[2];
+        /* a posed joint's rotation replaces its rest value outright */
+        if (pose && n->joint != JOINT_NONE) {
+            rot[0] = pose->rot[n->joint][0];
+            rot[1] = pose->rot[n->joint][1];
+            rot[2] = pose->rot[n->joint][2];
+            if (n->joint == JOINT_BODY) pos[2] = pose->bodyZ;
         }
-        m4_compose(n->pos, rot, n->scale, &local);
+        m4_compose(pos, rot, n->scale, &local);
         if (n->parent < 0) {
             if (root) m4_mul(root, &local, &out[i]);
             else out[i] = local;
@@ -206,10 +223,10 @@ void model_emit_world(const ModelDef *model, const M4 *world, int surfFilter,
     }
 }
 
-void model_emit(const ModelDef *model, const float *jointRot, const M4 *root,
+void model_emit(const ModelDef *model, const Pose *pose, const M4 *root,
                 ModelTriFn fn, void *ctx) {
     M4 world[MODEL_MAX_NODES];
     if (!model || model->nodeCount > MODEL_MAX_NODES) return;
-    model_world(model, jointRot, root, world);
+    model_world(model, pose, root, world);
     model_emit_world(model, world, -1, fn, ctx);
 }
