@@ -9,6 +9,8 @@
 #include <vitaGL.h>
 #include <stdio.h>
 #include "texture.h"
+#include "model.h"
+#include "anim.h"
 
 #define MAX_BATCH_V   36000
 #define MAX_WORLD_V   70000
@@ -191,26 +193,6 @@ static Col fx_colour(int fx) {
         default:       return col_of(1.f, 0.76f, 0.28f);
     }
 }
-static Col enemy_colour(int type) {
-    switch (type) {
-        case E_GOBLIN:    return col_of(0.36f, 0.56f, 0.28f);
-        case E_ARCHER:    return col_of(0.30f, 0.48f, 0.26f);
-        case E_SPIDER:    return col_of(0.23f, 0.17f, 0.25f);
-        case E_SKELETON:  return col_of(0.82f, 0.80f, 0.71f);
-        case E_WRAITH:    return col_of(0.28f, 0.25f, 0.42f);
-        case E_HOUND:     return col_of(0.60f, 0.57f, 0.48f);
-        case E_IMP:       return col_of(0.56f, 0.20f, 0.14f);
-        case E_GOLEM:     return col_of(0.29f, 0.23f, 0.22f);
-        case B_WARCHIEF:  return col_of(0.29f, 0.48f, 0.23f);
-        case B_COLOSSUS:  return col_of(0.84f, 0.82f, 0.72f);
-        default:          return col_of(0.45f, 0.13f, 0.17f);
-    }
-}
-static Col class_colour(int cls) {
-    if (cls == CLS_VANGUARD) return col_of(0.24f, 0.43f, 0.65f);
-    if (cls == CLS_PYRO)     return col_of(0.42f, 0.16f, 0.48f);
-    return col_of(0.20f, 0.38f, 0.29f);
-}
 
 /* torch falloff: the carried light is what actually reveals the room */
 static float light_at(float x, float z) {
@@ -307,13 +289,13 @@ static void draw_world(void) {
     glEnable(GL_TEXTURE_2D);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 
-    glBindTexture(GL_TEXTURE_2D, gTex.floor);
+    glBindTexture(GL_TEXTURE_2D, gTex.surf[SURF_FLOOR_STONE]);
     glVertexPointer(3, GL_FLOAT, 0, fpos);
     glColorPointer(4, GL_FLOAT, 0, fcol);
     glTexCoordPointer(2, GL_FLOAT, 0, ftex);
     glDrawArrays(GL_TRIANGLES, 0, fcount);
 
-    glBindTexture(GL_TEXTURE_2D, gTex.wall);
+    glBindTexture(GL_TEXTURE_2D, gTex.surf[SURF_WALL_MASON]);
     glVertexPointer(3, GL_FLOAT, 0, kpos);
     glColorPointer(4, GL_FLOAT, 0, kcol);
     glTexCoordPointer(2, GL_FLOAT, 0, ktex);
@@ -321,62 +303,159 @@ static void draw_world(void) {
 }
 
 /* ---------------- actors ---------------- */
-static void draw_biped(float x, float z, float facing, float scale,
-                       Col c, float walkT, float atkAnim, float lift) {
-    float k = light_at(x, z);
-    float step = sinf(walkT) * 0.32f;
-    float sw = atkAnim > 0.f ? sinf((0.3f - atkAnim) / 0.3f * 3.14159f) * 0.5f : 0.f;
-    float y = lift;
-
-    ground_quad(x, z, 0.9f * scale, 0.f, 0.f, 0.f, 0.34f);      /* blob shadow */
-
-    /* legs */
-    box(x + sinf(facing + 1.57f) * 0.13f * scale, y + 0.32f * scale,
-        z + cosf(facing + 1.57f) * 0.13f * scale,
-        0.15f * scale, 0.62f * scale, 0.15f * scale, facing,
-        c.r * 0.7f, c.g * 0.7f, c.b * 0.7f, k);
-    box(x - sinf(facing + 1.57f) * 0.13f * scale, y + 0.32f * scale + step * 0.05f,
-        z - cosf(facing + 1.57f) * 0.13f * scale,
-        0.15f * scale, 0.62f * scale, 0.15f * scale, facing,
-        c.r * 0.7f, c.g * 0.7f, c.b * 0.7f, k);
-    /* torso + head */
-    box(x, y + 0.95f * scale, z, 0.46f * scale, 0.66f * scale, 0.32f * scale, facing,
-        c.r, c.g, c.b, k);
-    box(x, y + 1.42f * scale, z, 0.28f * scale, 0.28f * scale, 0.28f * scale, facing,
-        c.r * 1.25f, c.g * 1.15f, c.b * 1.05f, k);
-    /* weapon arm swings forward on an attack */
-    box(x + sinf(facing) * (0.22f + sw) * scale + cosf(facing) * 0.28f * scale,
-        y + 1.02f * scale,
-        z + cosf(facing) * (0.22f + sw) * scale - sinf(facing) * 0.28f * scale,
-        0.14f * scale, 0.5f * scale, 0.14f * scale, facing,
-        c.r * 0.85f, c.g * 0.85f, c.b * 0.85f, k);
+/* Which baked model each actor uses. The browser picks these in its
+   roster; the ids come from model_data.h, generated from that same roster. */
+static int model_for_enemy(int type) {
+    switch (type) {
+        case E_GOBLIN:   return MODEL_GOBLIN;
+        case E_ARCHER:   return MODEL_ARCHER;
+        case E_SPIDER:   return MODEL_SPIDER;
+        case E_SKELETON: return MODEL_SKELETON;
+        case E_WRAITH:   return MODEL_WRAITH;
+        case E_HOUND:    return MODEL_HOUND;
+        case E_IMP:      return MODEL_IMP;
+        case E_GOLEM:    return MODEL_GOLEM;
+        case B_WARCHIEF: return MODEL_WARCHIEF;
+        case B_COLOSSUS: return MODEL_COLOSSUS;
+        default:         return MODEL_WARDEN;
+    }
+}
+static int model_for_class(int cls) {
+    if (cls == CLS_VANGUARD) return MODEL_VANGUARD;
+    if (cls == CLS_PYRO)     return MODEL_PYROMANCER;
+    return MODEL_RANGER;
 }
 
-static void draw_actors(void) {
-    int i;
-    /* player */
-    if (G.pl.alive) {
-        Col c = class_colour(G.pl.cls);
-        float f = G.pl.invuln > 0.f ? 1.35f : 1.f;
-        draw_biped(G.pl.pos.x, G.pl.pos.z, G.pl.facing, 1.f,
-                   col_of(c.r * f, c.g * f, c.b * f), G.pl.walkT, G.pl.atkAnim, 0.f);
+/* one actor's shading state while its triangles stream out of the model */
+typedef struct { float light; int flash; } ActorCtx;
+
+static void actor_tri(void *ctx, int surf, const float *col,
+                      const float *pos, const float *uv) {
+    ActorCtx *a = (ActorCtx *)ctx;
+    float r, g, b;
+    int k;
+    (void)surf;
+    if (bcount + 3 > MAX_BATCH_V) return;
+    if (a->flash) { r = 1.f; g = 1.f; b = 1.f; }
+    else {
+        r = col[0] * a->light;
+        g = col[1] * a->light;
+        b = col[2] * a->light;
     }
+    for (k = 0; k < 3; k++)
+        push_vert(bpos, bcol, btex, &bcount,
+                  pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2],
+                  r, g, b, 1.f, uv[k * 2], uv[k * 2 + 1]);
+}
+
+/* Pose the model once, then draw it one surface at a time so each
+   material costs a single bind and a single draw. */
+static void draw_model(int modelId, const Pose *pose, float x, float y, float z,
+                       float facing, float scale, float light, int flash) {
+    const ModelDef *md = model_get(modelId);
+    M4 root, world[MODEL_MAX_NODES];
+    float p[3], rot[3], sc[3];
+    ActorCtx actx;
+    int s;
+    if (!md || md->nodeCount > MODEL_MAX_NODES) return;
+
+    p[0] = x; p[1] = y; p[2] = z;
+    rot[0] = 0.f; rot[1] = facing; rot[2] = 0.f;
+    sc[0] = sc[1] = sc[2] = scale;
+    m4_compose(p, rot, sc, &root);
+    model_world(md, pose, &root, world);
+
+    actx.light = light;
+    actx.flash = flash;
+    for (s = 0; s < SURF_COUNT; s++) {
+        batch_reset();
+        model_emit_world(md, world, s, actor_tri, &actx);
+        batch_flush(gTex.surf[s]);
+    }
+}
+
+/* One animated actor. The clocks and eased joints live here rather than in
+   the simulation, which is where the browser keeps them too - animateActor
+   owns walkT, not the update loop. */
+typedef struct {
+    ActorAnim anim;
+    int   bound;        /* model id + 1, so zeroed memory reads as unbound */
+    float prevAtk;      /* to catch the frame a swing starts */
+} ActorSlot;
+
+static ActorSlot gPlayerSlot;
+static ActorSlot gEnemySlot[MAX_ENEMY];
+
+static void slot_step(ActorSlot *s, int modelId, float dt, float x, float z,
+                      float baseY, float simAtk, int telegraphing) {
+    int moving;
+    if (s->bound != modelId + 1) {
+        s->bound = modelId + 1;
+        anim_init(&s->anim, model_get(modelId));
+        s->anim.lastX = x;
+        s->anim.lastZ = z;
+        s->prevAtk = 0.f;
+    }
+    /* the simulation does not flag movement, so infer it from the step taken */
+    moving = (fabsf(x - s->anim.lastX) + fabsf(z - s->anim.lastZ)) > 0.002f;
+    s->anim.lastX = x;
+    s->anim.lastZ = z;
+
+    /* a rising attack timer is the frame the swing was thrown; the duration
+       the simulation set becomes the swing's length */
+    if (simAtk > s->prevAtk) anim_swing(&s->anim, 1.4f, simAtk);
+    s->prevAtk = simAtk;
+
+    anim_update(&s->anim, dt, moving, telegraphing, baseY);
+}
+
+static void draw_actors(float dt) {
+    int i;
+
+    /* blob shadows and the portal disc share the untextured pass */
+    batch_reset();
+    if (G.pl.alive)
+        ground_quad(G.pl.pos.x, G.pl.pos.z, 0.9f, 0.f, 0.f, 0.f, 0.34f);
     for (i = 0; i < MAX_ENEMY; i++) {
         Enemy *e = &G.en[i];
-        Col c;
-        float s;
+        float sc;
         if (!e->active) continue;
-        c = enemy_colour(e->type);
-        if (e->flash > 0.f) { c.r = 1.f; c.g = 1.f; c.b = 1.f; }
-        s = gEnemyDef[e->type].scale;
-        if (e->dying) s *= (e->deathT / e->deathDur);
-        if (s < 0.05f) continue;
-        draw_biped(e->pos.x, e->pos.z, e->facing, s, c, e->walkT, e->atkAnim, e->baseY);
+        sc = gEnemyDef[e->type].scale;
+        if (e->dying) sc *= (e->deathT / e->deathDur);
+        if (sc < 0.05f) continue;
+        ground_quad(e->pos.x, e->pos.z, 0.9f * sc, 0.f, 0.f, 0.f, 0.34f);
     }
-    /* portal */
     if (G.portalOn) {
         float pulse = 0.6f + sinf(G.elapsed * 3.f) * 0.25f;
         ground_quad(G.portalPos.x, G.portalPos.z, 2.6f, 0.35f, 0.75f, 1.f, pulse);
+    }
+    batch_flush(gTex.white);
+
+    /* bodies */
+    if (G.pl.alive) {
+        int mid = model_for_class(G.pl.cls);
+        float k = light_at(G.pl.pos.x, G.pl.pos.z);
+        if (G.pl.invuln > 0.f) k *= 1.35f;
+        slot_step(&gPlayerSlot, mid, dt, G.pl.pos.x, G.pl.pos.z, 0.f,
+                  G.pl.atkAnim, 0);
+        draw_model(mid, &gPlayerSlot.anim.pose, G.pl.pos.x,
+                   gPlayerSlot.anim.rootY, G.pl.pos.z, G.pl.facing, 1.f, k, 0);
+    }
+    for (i = 0; i < MAX_ENEMY; i++) {
+        Enemy *e = &G.en[i];
+        float sc;
+        if (!e->active) continue;
+        sc = gEnemyDef[e->type].scale;
+        if (e->dying) sc *= (e->deathT / e->deathDur);
+        if (sc < 0.05f) continue;
+        {
+            int mid = model_for_enemy(e->type);
+            slot_step(&gEnemySlot[i], mid, dt, e->pos.x, e->pos.z, e->baseY,
+                      e->atkAnim, e->bossState == 1);
+            draw_model(mid, &gEnemySlot[i].anim.pose, e->pos.x,
+                       gEnemySlot[i].anim.rootY, e->pos.z, e->facing, sc,
+                       light_at(e->pos.x, e->pos.z), e->flash > 0.f);
+        }
     }
 }
 
@@ -552,12 +631,14 @@ int rd_init(void) {
     glClearColor(0.03f, 0.03f, 0.05f, 1.f);
 
     if (!tex_build()) return 0;
+    if (!model_cache_build()) return 0;
     return 1;
 }
 void rd_shutdown(void) {
     /* vitaGL exposes no teardown call - releasing our own buffers is all there
        is to do, and process exit tears GXM down. */
     tex_free();
+    model_cache_free();
     free(fpos); free(fcol); free(ftex);
     free(kpos); free(kcol); free(ktex);
     fpos = fcol = ftex = kpos = kcol = ktex = NULL;
@@ -568,7 +649,6 @@ void rd_frame(float dt) {
     V3 eye, at, up;
     float sh = G.shake;
 
-    (void)dt;
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     if (G.state == ST_PLAY || G.state == ST_DEAD || G.state == ST_WIN) {
@@ -592,10 +672,9 @@ void rd_frame(float dt) {
         glEnable(GL_DEPTH_TEST);
         draw_world();
 
-        batch_reset();
-        draw_actors();
-        batch_flush(gTex.actor);          /* bodies carry the cloth/hide grain */
+        draw_actors(dt);                  /* binds and flushes per body material */
 
+        batch_reset();
         draw_projectiles();
         draw_particles();
         batch_flush(gTex.white);          /* effects stay flat and bright */
