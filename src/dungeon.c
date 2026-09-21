@@ -120,6 +120,11 @@ static int try_place(Room *out, int minS, int maxS, int tries) {
     return 0;
 }
 
+/* Bumped on every regenerate. The layout is freshly randomised each call,
+   including for a depth just visited, so anything caching the world has to
+   key on this rather than on G.depth. */
+unsigned int gDungeonGen = 0;
+
 void dg_generate(int depth) {
     int i, want, hasBoss = 0;
 
@@ -150,4 +155,6 @@ void dg_generate(int depth) {
 
     for (i = 0; i < gRoomCount; i++) carve_room(&gRooms[i]);
     for (i = 1; i < gRoomCount; i++) carve_corridor(&gRooms[i - 1], &gRooms[i]);
+
+    gDungeonGen++;
 }
