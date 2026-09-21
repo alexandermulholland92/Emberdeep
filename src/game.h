@@ -135,6 +135,7 @@ extern unsigned char gGrid[GRID][GRID];   /* 0 solid, 1 room, 2 corridor */
 extern unsigned char gSeen[GRID][GRID];
 extern Room  gRooms[MAX_ROOMS];
 extern int   gRoomCount;
+extern unsigned int gDungeonGen;   /* changes on every dg_generate() */
 
 void  dg_generate(int depth);
 int   dg_walkable(float x, float z, float r);

@@ -66,6 +66,10 @@ test:
 	@for c in 0 1 2; do /tmp/emberdeep_test $$c 1 303; done
 	@echo "--- unassisted ---"
 	@for c in 0 1 2; do /tmp/emberdeep_test $$c 0 404; done
+	@echo "--- world-mesh cache key (regression: stale walls on a restart) ---"
+	@cc -std=c99 -Wall -Wextra -Isrc tests/regen_test.c src/dungeon.c -lm \
+		-o /tmp/emberdeep_regen
+	@/tmp/emberdeep_regen
 
 # type-check the Vita-only files without the SDK, using stub headers
 check:

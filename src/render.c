@@ -23,7 +23,7 @@ static int    bcount;
 /* the world is split by material so each half can bind its own texture */
 static float *fpos, *fcol, *ftex;   int fcount;   /* floor slabs   */
 static float *kpos, *kcol, *ktex;   int kcount;   /* wall blocks   */
-static int    wfloor = -1;
+static unsigned int wgen;      /* gDungeonGen the world mesh was built from */
 
 extern const char *fnt_glyph_rows(char c);   /* font.c: 7 rows of 5 bits */
 
@@ -279,7 +279,7 @@ static void build_world(void) {
             }
         }
     }
-    wfloor = G.depth;
+    wgen = gDungeonGen;
 }
 
 /* the world mesh is static, so relight it per frame by scaling its colours */
@@ -407,6 +407,13 @@ static void slot_step(ActorSlot *s, int modelId, float dt, float x, float z,
     s->prevAtk = simAtk;
 
     anim_update(&s->anim, dt, moving, telegraphing, baseY);
+}
+
+/* Slots are indexed by enemy slot number, so a fresh layout must not inherit
+   the previous one's poses, clocks or last-known positions. */
+static void actors_reset(void) {
+    memset(&gPlayerSlot, 0, sizeof gPlayerSlot);
+    memset(gEnemySlot, 0, sizeof gEnemySlot);
 }
 
 static void draw_actors(float dt) {
@@ -652,7 +659,7 @@ void rd_frame(float dt) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     if (G.state == ST_PLAY || G.state == ST_DEAD || G.state == ST_WIN) {
-        if (wfloor != G.depth) build_world();
+        if (wgen != gDungeonGen) { build_world(); actors_reset(); }
 
         eye.x = G.pl.pos.x + (sh > 0.f ? rndr(-sh, sh) * 0.4f : 0.f);
         eye.y = 10.6f + (sh > 0.f ? rndr(-sh, sh) * 0.3f : 0.f);
