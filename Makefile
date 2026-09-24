@@ -82,6 +82,11 @@ check:
 		src/model.c src/model_data.c src/anim.c src/minimap.c src/save.c
 	@echo "vita-only sources type-check clean"
 
+# the stubs make check compiles against must match the SDK's own headers.
+# needs $VITASDK, so this is really a CI check; it runs here when one is set.
+stubcheck:
+	@sh tools/check_stubs.sh
+
 # prove the procedural surfaces still match the browser build byte for byte.
 # needs node and a copy of emberdeep.html:  make texcheck HTML=path/to/emberdeep.html
 HTML ?= emberdeep.html
@@ -139,4 +144,4 @@ clean:
 	rm -f $(TARGET).vpk $(TARGET).velf $(TARGET).elf $(TARGET).elf.unstripped.elf \
 	      eboot.bin param.sfo $(OBJS)
 
-.PHONY: all clean test check texcheck geomcheck modelcheck animcheck
+.PHONY: all clean test check stubcheck texcheck geomcheck modelcheck animcheck

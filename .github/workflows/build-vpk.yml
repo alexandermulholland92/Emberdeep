@@ -70,6 +70,13 @@ jobs:
           if [ "$miss" = "0" ]; then echo "all GL symbols present"; fi
           exit $miss
 
+      # make check compiles src/ against tests/stubs/, so a stub that
+      # disagrees with the SDK makes it agree with nothing
+      - name: Check the host stubs against the SDK headers
+        working-directory: ${{ steps.loc.outputs.dir }}
+        shell: bash
+        run: sh tools/check_stubs.sh
+
       # the simulation is platform independent, so it can be checked here too
       - name: Verify game logic
         working-directory: ${{ steps.loc.outputs.dir }}
