@@ -38,7 +38,6 @@ typedef int GLsizei; typedef float GLfloat; typedef unsigned char GLboolean; typ
 #define GL_TEXTURE_ENV_MODE 0x2200
 #define GL_MODULATE 0x2100
 void vglInit(int poolSize);
-void vglEnd(void);
 void vglSwapBuffers(GLboolean hasCommonDialog);
 void glClear(GLbitfield mask);
 void glClearColor(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
