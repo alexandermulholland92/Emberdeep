@@ -2,6 +2,7 @@
    main.c : Vita entry point, input and the frame loop.
    ========================================================== */
 #include "game.h"
+#include "save.h"
 #include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
@@ -54,7 +55,41 @@ static void menu_input(const Input *in, SceCtrlData *pad, SceCtrlData *prev) {
     unsigned int pressed = pad->buttons & ~prev->buttons;
     if (pressed & SCE_CTRL_UP)   G.classPick = (G.classPick + CLS_COUNT - 1) % CLS_COUNT;
     if (pressed & SCE_CTRL_DOWN) G.classPick = (G.classPick + 1) % CLS_COUNT;
+    /* triangle picks up a saved run rather than sitting in the class list,
+       which keeps the class selection indexing untouched */
+    if (in->b[2] && sv_exists() && sv_load()) return;
     if (in->b[0]) ac_start_run(G.classPick);
+}
+
+/* ---------------- pause ---------------- */
+static void pause_input(const Input *in, SceCtrlData *pad, SceCtrlData *prev) {
+    unsigned int pressed = pad->buttons & ~prev->buttons;
+
+    if (pressed & SCE_CTRL_UP)
+        G.pausePick = (G.pausePick + PAUSE_COUNT - 1) % PAUSE_COUNT;
+    if (pressed & SCE_CTRL_DOWN)
+        G.pausePick = (G.pausePick + 1) % PAUSE_COUNT;
+
+    /* circle backs out, the way start toggled in */
+    if (in->b[3] || in->start) { G.state = ST_PLAY; G.pauseNote = 0; return; }
+
+    if (!in->b[0]) return;
+    switch (G.pausePick) {
+        case PAUSE_RESUME:
+            G.state = ST_PLAY;
+            G.pauseNote = 0;
+            break;
+        case PAUSE_SAVE:
+            G.pauseNote = sv_save() ? "RUN SAVED" : "SAVE FAILED";
+            break;
+        case PAUSE_QUIT:
+            /* abandon the run and go back to the class screen; the saved
+               file is left alone so it can still be picked up there */
+            G.state = ST_CLASS;
+            G.pauseNote = 0;
+            break;
+        default: break;
+    }
 }
 
 int main(void) {
@@ -95,9 +130,17 @@ int main(void) {
         if (G.state == ST_CLASS) {
             menu_input(&in, &pad, &prev);
         } else if (G.state == ST_PLAY) {
-            for (i = 0; i < 4; i++) if (in.b[i]) ac_use_ability(i);
-            ac_update_player(dt, &in);
-            ac_update(dt);
+            if (in.start) {                   /* freeze and open the menu */
+                G.state = ST_PAUSE;
+                G.pausePick = PAUSE_RESUME;
+                G.pauseNote = 0;
+            } else {
+                for (i = 0; i < 4; i++) if (in.b[i]) ac_use_ability(i);
+                ac_update_player(dt, &in);
+                ac_update(dt);
+            }
+        } else if (G.state == ST_PAUSE) {
+            pause_input(&in, &pad, &prev);    /* the world holds still */
         } else {                              /* dead or victorious */
             if (in.b[0]) { G.state = ST_CLASS; }
         }
