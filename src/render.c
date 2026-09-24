@@ -11,6 +11,7 @@
 #include "texture.h"
 #include "model.h"
 #include "anim.h"
+#include "minimap.h"
 
 #define MAX_BATCH_V   36000
 #define MAX_WORLD_V   70000
@@ -531,6 +532,33 @@ static void hud_bar(float x, float y, float w, float h, float frac,
     hud_rect(x, y, w * frac, h, r, g, b, 1.f);
 }
 
+/* The browser parks the minimap at top:92px right:12px, 96x96, inside a
+   thin bordered wrap. Same numbers here - it clears the 84px top bar and
+   sits inboard of the floor name above it. */
+#define MM_SIZE   96.f
+#define MM_MARGIN 12.f
+#define MM_TOP    92.f
+
+static void mm_rect(void *ctx, float x, float y, float w, float h,
+                    float r, float g, float b, float a) {
+    (void)ctx;
+    hud_rect(x, y, w, h, r, g, b, a);
+}
+
+static void draw_minimap(void) {
+    float x = (float)SCR_W - MM_SIZE - MM_MARGIN;
+    float y = MM_TOP;
+
+    /* the wrap: its own backing, then a one-pixel edge. The browser also
+       rounds the corners and casts a shadow, neither of which the HUD's
+       axis-aligned quads can express. */
+    hud_rect(x - 1.f, y - 1.f, MM_SIZE + 2.f, MM_SIZE + 2.f,
+             0.784f, 0.698f, 0.502f, 0.35f);
+    hud_rect(x, y, MM_SIZE, MM_SIZE, 0.024f, 0.020f, 0.039f, 0.62f);
+
+    mm_draw(x, y, MM_SIZE, mm_rect, 0);
+}
+
 static void draw_hud(void) {
     const ClassDef *c = &gClassDef[G.pl.cls];
     char buf[64];
@@ -569,6 +597,8 @@ static void draw_hud(void) {
             hud_text(ax + 6.f, ay + 26.f, 1.2f, c->abil[i], 0.85f, 0.80f, 0.68f, a);
         }
     }
+
+    draw_minimap();
 
     if (G.toastT > 0.f && G.toastText)
         hud_text(((float)SCR_W - text_w(G.toastText, 2.2f)) * 0.5f, 120.f, 2.2f,

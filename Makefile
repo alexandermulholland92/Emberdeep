@@ -9,7 +9,7 @@ TITLE    := Dungeons of the Emberdeep
 VERSION  := 01.00
 
 OBJS := src/main.o src/actors.o src/dungeon.o src/render.o src/texture.o \
-        src/geom.o src/model.o src/model_data.o src/anim.o src/font.o
+        src/geom.o src/model.o src/model_data.o src/anim.o src/minimap.o src/font.o
 
 PREFIX := arm-vita-eabi
 CC     := $(PREFIX)-gcc
@@ -75,7 +75,7 @@ test:
 check:
 	cc -fsyntax-only -std=c99 -Wall -Wextra -Wno-unused-parameter \
 		-Isrc -Itests/stubs src/render.c src/main.c src/texture.c src/geom.c \
-		src/model.c src/model_data.c src/anim.c
+		src/model.c src/model_data.c src/anim.c src/minimap.c
 	@echo "vita-only sources type-check clean"
 
 # prove the procedural surfaces still match the browser build byte for byte.
