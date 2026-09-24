@@ -7,7 +7,7 @@
 
 #ifndef SV_HOST_HARNESS
 #include <psp2/io/fcntl.h>
-#include <psp2/io/dirent.h>
+#include <psp2/io/stat.h>   /* sceIoMkdir lives here, not in dirent.h */
 #endif
 
 #define SV_MAGIC   0x524D4245u   /* 'EMBR' */
