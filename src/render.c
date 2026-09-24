@@ -11,6 +11,8 @@
 #include "texture.h"
 #include "model.h"
 #include "anim.h"
+#include "minimap.h"
+#include "save.h"
 
 #define MAX_BATCH_V   36000
 #define MAX_WORLD_V   70000
@@ -531,6 +533,33 @@ static void hud_bar(float x, float y, float w, float h, float frac,
     hud_rect(x, y, w * frac, h, r, g, b, 1.f);
 }
 
+/* The browser parks the minimap at top:92px right:12px, 96x96, inside a
+   thin bordered wrap. Same numbers here - it clears the 84px top bar and
+   sits inboard of the floor name above it. */
+#define MM_SIZE   96.f
+#define MM_MARGIN 12.f
+#define MM_TOP    92.f
+
+static void mm_rect(void *ctx, float x, float y, float w, float h,
+                    float r, float g, float b, float a) {
+    (void)ctx;
+    hud_rect(x, y, w, h, r, g, b, a);
+}
+
+static void draw_minimap(void) {
+    float x = (float)SCR_W - MM_SIZE - MM_MARGIN;
+    float y = MM_TOP;
+
+    /* the wrap: its own backing, then a one-pixel edge. The browser also
+       rounds the corners and casts a shadow, neither of which the HUD's
+       axis-aligned quads can express. */
+    hud_rect(x - 1.f, y - 1.f, MM_SIZE + 2.f, MM_SIZE + 2.f,
+             0.784f, 0.698f, 0.502f, 0.35f);
+    hud_rect(x, y, MM_SIZE, MM_SIZE, 0.024f, 0.020f, 0.039f, 0.62f);
+
+    mm_draw(x, y, MM_SIZE, mm_rect, 0);
+}
+
 static void draw_hud(void) {
     const ClassDef *c = &gClassDef[G.pl.cls];
     char buf[64];
@@ -570,12 +599,44 @@ static void draw_hud(void) {
         }
     }
 
+    draw_minimap();
+
     if (G.toastT > 0.f && G.toastText)
         hud_text(((float)SCR_W - text_w(G.toastText, 2.2f)) * 0.5f, 120.f, 2.2f,
                  G.toastText, 1.f, 0.84f, 0.42f, 1.f);
     if (G.bannerT > 0.f && G.bannerText)
         hud_text(((float)SCR_W - text_w(G.bannerText, 3.4f)) * 0.5f, 210.f, 3.4f,
                  G.bannerText, 0.95f, 0.88f, 0.72f, 1.f);
+}
+
+static void draw_pause_screen(void) {
+    static const char *kItem[PAUSE_COUNT] = { "RESUME", "SAVE", "QUIT" };
+    const char *title = "PAUSED";
+    const char *hint  = "UP/DOWN CHOOSE   X SELECT   O RESUME";
+    int i;
+
+    /* dim the frozen scene rather than hide it */
+    hud_rect(0.f, 0.f, (float)SCR_W, (float)SCR_H, 0.02f, 0.02f, 0.04f, 0.62f);
+
+    hud_text(((float)SCR_W - text_w(title, 3.2f)) * 0.5f, 118.f, 3.2f, title,
+             0.93f, 0.81f, 0.55f, 1.f);
+
+    for (i = 0; i < PAUSE_COUNT; i++) {
+        float y = 196.f + i * 62.f;
+        int sel = (G.pausePick == i);
+        hud_rect(330.f, y - 12.f, 300.f, 46.f,
+                 sel ? 0.20f : 0.09f, sel ? 0.15f : 0.08f, sel ? 0.10f : 0.10f, 0.9f);
+        hud_text(356.f, y, 2.4f, kItem[i],
+                 sel ? 1.f : 0.75f, sel ? 0.88f : 0.70f, sel ? 0.55f : 0.58f, 1.f);
+    }
+
+    /* whether the last save actually landed */
+    if (G.pauseNote)
+        hud_text(((float)SCR_W - text_w(G.pauseNote, 1.9f)) * 0.5f, 400.f, 1.9f,
+                 G.pauseNote, 0.72f, 0.88f, 0.62f, 1.f);
+
+    hud_text(((float)SCR_W - text_w(hint, 1.6f)) * 0.5f, 452.f, 1.6f, hint,
+             0.66f, 0.62f, 0.52f, 1.f);
 }
 
 static void draw_overlay_screen(void) {
@@ -599,6 +660,11 @@ static void draw_overlay_screen(void) {
         hint = "UP/DOWN CHOOSE     X BEGIN";
         hud_text(((float)SCR_W - text_w(hint, 1.8f)) * 0.5f, 480.f, 1.8f, hint,
                  0.66f, 0.62f, 0.52f, 1.f);
+        if (sv_exists()) {
+            const char *cont = "TRIANGLE   CONTINUE SAVED RUN";
+            hud_text(((float)SCR_W - text_w(cont, 1.8f)) * 0.5f, 508.f, 1.8f,
+                     cont, 0.80f, 0.74f, 0.50f, 1.f);
+        }
     } else {
         title = (G.state == ST_WIN) ? "THE EMBERDEEP FALLS" : "YOU DIED";
         hud_text(((float)SCR_W - text_w(title, 3.6f)) * 0.5f, 190.f, 3.6f, title,
@@ -658,7 +724,8 @@ void rd_frame(float dt) {
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (G.state == ST_PLAY || G.state == ST_DEAD || G.state == ST_WIN) {
+    if (G.state == ST_PLAY || G.state == ST_PAUSE ||
+        G.state == ST_DEAD || G.state == ST_WIN) {
         if (wgen != gDungeonGen) { build_world(); actors_reset(); }
 
         eye.x = G.pl.pos.x + (sh > 0.f ? rndr(-sh, sh) * 0.4f : 0.f);
@@ -698,6 +765,7 @@ void rd_frame(float dt) {
 
         batch_reset();
         if (G.state == ST_PLAY) draw_hud();
+        else if (G.state == ST_PAUSE) { draw_hud(); draw_pause_screen(); }
         else draw_overlay_screen();
         batch_flush(gTex.white);
     }

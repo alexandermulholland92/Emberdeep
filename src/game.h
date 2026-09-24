@@ -33,7 +33,10 @@ enum { E_GOBLIN, E_ARCHER, E_SPIDER, E_SKELETON, E_WRAITH, E_HOUND, E_IMP, E_GOL
 enum { CLS_VANGUARD, CLS_PYRO, CLS_RANGER, CLS_COUNT };
 
 /* game states */
-enum { ST_CLASS, ST_PLAY, ST_DEAD, ST_WIN };
+enum { ST_CLASS, ST_PLAY, ST_PAUSE, ST_DEAD, ST_WIN };
+
+/* pause menu entries, in the order they are listed */
+enum { PAUSE_RESUME, PAUSE_SAVE, PAUSE_QUIT, PAUSE_COUNT };
 
 /* particle / projectile flavours (drive colour only) */
 enum { FX_SPARK, FX_FIRE, FX_BLOOD, FX_BONE, FX_DUST, FX_HEAL, FX_GOLD, FX_FROST, FX_VENOM };
@@ -126,6 +129,8 @@ typedef struct {
     const char *bannerText;
     float  toastT;
     const char *toastText;
+    int    pausePick;
+    const char *pauseNote;   /* transient menu feedback, never saved */
 } Game;
 
 extern Game G;
@@ -176,6 +181,9 @@ void  ac_update(float dt);
 void  ac_update_player(float dt, const Input *in);
 const char *ac_floor_name(int depth);
 void  ac_use_ability(int slot);
+/* the deferred-effect table, so a save can snapshot it without it
+   leaking out of actors.c the rest of the time */
+void *ac_timer_state(int *bytes);
 void  ac_hurt_player(float amount, int isDot);
 void  ac_spawn_particles(V3 at, int count, int fx, float speed, float size, float life);
 int   ac_ability_ready(int slot);

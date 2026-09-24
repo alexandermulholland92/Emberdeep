@@ -9,7 +9,7 @@ TITLE    := Dungeons of the Emberdeep
 VERSION  := 01.00
 
 OBJS := src/main.o src/actors.o src/dungeon.o src/render.o src/texture.o \
-        src/geom.o src/model.o src/model_data.o src/anim.o src/font.o
+        src/geom.o src/model.o src/model_data.o src/anim.o src/minimap.o src/save.o src/font.o
 
 PREFIX := arm-vita-eabi
 CC     := $(PREFIX)-gcc
@@ -70,12 +70,16 @@ test:
 	@cc -std=c99 -Wall -Wextra -Isrc tests/regen_test.c src/dungeon.c -lm \
 		-o /tmp/emberdeep_regen
 	@/tmp/emberdeep_regen
+	@echo "--- save round-trip ---"
+	@cc -std=c99 -Wall -Wextra -DSV_HOST_HARNESS -Isrc tests/save_test.c \
+		src/save.c src/dungeon.c src/actors.c -lm -o /tmp/emberdeep_save
+	@/tmp/emberdeep_save
 
 # type-check the Vita-only files without the SDK, using stub headers
 check:
 	cc -fsyntax-only -std=c99 -Wall -Wextra -Wno-unused-parameter \
 		-Isrc -Itests/stubs src/render.c src/main.c src/texture.c src/geom.c \
-		src/model.c src/model_data.c src/anim.c
+		src/model.c src/model_data.c src/anim.c src/minimap.c src/save.c
 	@echo "vita-only sources type-check clean"
 
 # prove the procedural surfaces still match the browser build byte for byte.

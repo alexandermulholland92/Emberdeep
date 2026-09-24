@@ -71,6 +71,11 @@ static void timer_add(int type, float delay, float x, float z, float a, int who)
 }
 static void timers_clear(void) { memset(sTimers, 0, sizeof(sTimers)); }
 
+void *ac_timer_state(int *bytes) {
+    if (bytes) *bytes = (int)sizeof sTimers;
+    return sTimers;
+}
+
 /* ---------------- small helpers ---------------- */
 
 static void toast(const char *s) { G.toastText = s; G.toastT = 1.6f; }
