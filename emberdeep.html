@@ -732,7 +732,7 @@ scene.add(spellLight);
 
 function applyTheme(t) {
   scene.background = new THREE.Color(t.fog);
-  scene.fog = new THREE.FogExp2(t.fog, t.fogD);
+  scene.fog = new THREE.FogExp2(t.fog, t.fogD / CAM_BASE_ZOOM);
   ambLight.color.setHex(t.ambient); ambLight.intensity = t.ambientI;
   hemiLight.color.setHex(t.hemiSky); hemiLight.groundColor.setHex(t.hemiGround);
   hemiLight.intensity = t.hemiI;
@@ -977,11 +977,15 @@ function bindBtn(node, fn) {
 }
 
 // ---------- camera ----------
+// How far out the camera sits. camZoom widens it further per room (boss
+// rooms pull back); this is the base every room starts from. The fog thins
+// by the same factor so the scene reads as clearly from further away.
+var CAM_BASE_ZOOM = 1.45;
 var camGoal = new THREE.Vector3(0, 11, 6.4);
 var lookGoal = new THREE.Vector3();
 var camZoom = 1;
 function updateCamera(dt, target) {
-  var z = camZoom;
+  var z = camZoom * CAM_BASE_ZOOM;
   camGoal.set(target.x, 10.6 * z, target.z + 6.0 * z);
   camera.position.lerp(camGoal, 1 - Math.pow(0.0016, dt));
   if (shakeAmt > 0.001) {
@@ -3765,7 +3769,7 @@ function buildFloor(depth) {
   G.player.invuln = Math.max(G.player.invuln, 1.2);
   el.floorTag.textContent = G.theme.sub + ' · ' + G.theme.name;
   showBanner(G.theme.sub, G.theme.name, 2400);
-  camera.position.set(c.x, 10.6, c.z + 6);
+  camera.position.set(c.x, 10.6 * CAM_BASE_ZOOM, c.z + 6 * CAM_BASE_ZOOM);
 }
 function onBossDefeated() {
   if (G.depth >= THEMES.length - 1) {
@@ -3948,7 +3952,7 @@ initMotes();
 buildClassCards();
 onResize();
 applyTheme(THEMES[0]);
-camera.position.set(0, 11, 7);
+camera.position.set(0, 10.6 * CAM_BASE_ZOOM, 6 * CAM_BASE_ZOOM);
 tick();
 // textures cost a few hundred ms to generate; build them just after the class
 // screen has painted rather than blocking the first frame. buildSurfaces() is
