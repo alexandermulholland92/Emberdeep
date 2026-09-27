@@ -11,12 +11,14 @@
    and keeping them on this side leaves actors.c (and its host tests)
    untouched.
 
-   The walk was reworked on both sides together (the browser's bent its
-   knees backwards, skated, and swung the off-hand with its own leg), so
-   emberdeep.html in the repository carries the same stride anim.c does
-   and animcheck still diffs the two directly. tests/gait_test.c checks
-   the walk itself: that knees bend the right way, feet stay planted
-   without skating or scraping, and so on.
+   The walk and the weapon arm were reworked on both sides together (the
+   browser's knees bent backwards, its feet skated, its off-hand swung
+   with its own leg, and its weapons were carried and swung backwards), so
+   emberdeep.html in the repository carries the same code anim.c does and
+   animcheck still diffs the two directly. tests/gait_test.c and
+   tests/swing_test.c check the motion itself: knees bend the right way,
+   feet stay planted without skating or scraping, weapons are carried
+   ahead and chop forward edge-first, and so on.
    ========================================================== */
 #ifndef EMBERDEEP_ANIM_H
 #define EMBERDEEP_ANIM_H
@@ -31,6 +33,12 @@ typedef struct {
     float atkAnim;      /* seconds left in the current swing   */
     float atkAnimDur;   /* its total length                    */
     float atkSwing;     /* how far the follow-through carries  */
+    float swingFrom[3]; /* weapon arm at the start of the swing: shoulder,
+                           elbow, and where the weapon pointed        */
+    int   armed;        /* the right hand holds a weapon            */
+    float mount;        /* the angle it is mounted at in the hand   */
+    float chestX;       /* the chest's rest pitch, and how far it   */
+    float lean;         /* leans back during a boss's wind-up       */
     float rootY;        /* the bob animateActor writes to position.y */
     float lastX, lastZ; /* to tell whether the actor is moving */
     float legRestZ[MODEL_MAX_LEGS];   /* arachnid legs splay from a rest angle */

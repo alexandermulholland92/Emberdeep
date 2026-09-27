@@ -28,6 +28,27 @@ static float minf(float a, float b) { return a < b ? a : b; }
 #define TOE_DOWN   0.35f   /* foot tipped toe-down as it leaves the floor  */
 #define TOE_UP     0.4f    /* and toe-up as it comes down, heel first      */
 
+/* The weapon arm's poses: shoulder, elbow, and where the weapon points
+   (radians from straight up, toward the front). Rigs face +z, and a
+   negative x rotation raises a limb forward. A weapon is carried angled
+   up and ahead; a swing hauls it up over the shoulder until it points
+   down the back, then chops it forward and down through whatever is in
+   front. (The browser carried it pointing up the forearm and back past
+   the shoulder, and swung the arm backwards to strike.) */
+static const float kHold[3]   = {  0.f,   -0.45f,  0.6f };
+static const float kWind[3]   = { -2.5f,  -1.2f,  -2.6f };
+static const float kStrike[3] = { -0.55f, -0.15f,  1.9f };
+
+/* Put the weapon arm in a pose. The wrist turns the weapon to its aim;
+   a bare hand keeps its wrist straight. */
+static void arm_pose(ActorAnim *a, float sh, float elb, float aim) {
+    Pose *p = &a->pose;
+    p->rot[JOINT_ARMR_S][0] = sh;
+    p->rot[JOINT_ARMR_E][0] = minf(0.f, elb);
+    p->rot[JOINT_ARMR_H][0] = a->armed ? aim - sh - p->rot[JOINT_ARMR_E][0]
+                                         - a->mount : 0.f;
+}
+
 /* The thigh's swing through one cycle, -1 (forward) .. 1 (back). While
    the foot is planted - from the front of the stride round to the back -
    the thigh sweeps back at an even rate, so the foot travels back under
@@ -90,6 +111,10 @@ void anim_init(ActorAnim *a, const ModelDef *model) {
     a->atkAnim = 0.f;
     a->atkAnimDur = 0.3f;
     a->atkSwing = 1.4f;
+    a->armed = 0;
+    a->mount = 0.f;
+    a->chestX = a->pose.rot[JOINT_CHEST][0];
+    a->lean = 0.f;
     a->rootY = 0.f;
     a->lastX = a->lastZ = 0.f;
     a->stride = 0.05f;
@@ -100,6 +125,23 @@ void anim_init(ActorAnim *a, const ModelDef *model) {
     a->started = 0;
     for (i = 0; i < MODEL_MAX_LEGS; i++)
         a->legRestZ[i] = model ? a->pose.rot[JOINT_LEG_HIP(i)][2] : 0.f;
+
+    /* A weapon is a group hung from the right hand (a bare hand holds only
+       meshes), mounted at a fixed angle the aim has to allow for. */
+    if (model && MODEL_HAS(model, JOINT_ARMR_H)) {
+        int hand = -1;
+        for (i = 0; i < model->nodeCount; i++)
+            if (model->nodes[i].joint == JOINT_ARMR_H) hand = i;
+        for (i = 0; hand >= 0 && i < model->nodeCount; i++)
+            if (model->nodes[i].parent == hand && model->nodes[i].geom < 0) {
+                a->armed = 1;
+                a->mount = model->nodes[i].rot[0];
+                break;
+            }
+    }
+    a->swingFrom[0] = kHold[0];
+    a->swingFrom[1] = kHold[1];
+    a->swingFrom[2] = kHold[2];
 
     /* Every stepping rig's legs are alike, so the first one is measured:
        the thigh, and the foot box hung below the knee. */
@@ -154,6 +196,11 @@ void anim_init(ActorAnim *a, const ModelDef *model) {
 
 void anim_swing(ActorAnim *a, float amount, float dur) {
     if (!a) return;
+    /* wind up from wherever the arm is - a boss is already half there */
+    a->swingFrom[0] = a->pose.rot[JOINT_ARMR_S][0];
+    a->swingFrom[1] = a->pose.rot[JOINT_ARMR_E][0];
+    a->swingFrom[2] = a->pose.rot[JOINT_ARMR_H][0] + a->swingFrom[0]
+                    + a->swingFrom[1] + a->mount;
     a->atkAnim = dur > 0.f ? dur : 0.3f;
     a->atkAnimDur = a->atkAnim;
     a->atkSwing = amount != 0.f ? amount : 1.4f;
@@ -270,36 +317,62 @@ void anim_update(ActorAnim *a, float dt, int moving, int telegraphing,
         p->rot[JOINT_HEAD][0] =
             approach(p->rot[JOINT_HEAD][0], moving ? 0.08f : 0.f, dt * 6.f);
 
-    if (telegraphing) return;
+    /* ---- a boss's wind-up: haul the weapon up and lean back into it ---- */
+    a->lean = approach(a->lean, telegraphing ? -0.18f : 0.f, dt * 5.f);
+    if (MODEL_HAS(m, JOINT_CHEST) && MODEL_HAS(m, JOINT_ARMR_S))
+        p->rot[JOINT_CHEST][0] = a->chestX + a->lean;
+    if (telegraphing) {
+        if (MODEL_HAS(m, JOINT_ARMR_S)) {
+            float sh = p->rot[JOINT_ARMR_S][0], elb = p->rot[JOINT_ARMR_E][0];
+            float aim = p->rot[JOINT_ARMR_H][0] + sh + elb + a->mount;
+            arm_pose(a, approach(sh, kWind[0], dt * 5.f),
+                     approach(elb, kWind[1], dt * 5.f),
+                     approach(aim, kWind[2], dt * 5.f));
+        }
+        return;
+    }
 
     /* ---- weapon arm: wind up, then swing through ---- */
     if (a->atkAnim > 0.f) {
-        float t, sh, elb;
-        a->atkAnim = maxf(0.f, a->atkAnim - dt);
+        float t;
+        /* a swing of whole frames ends on its last frame, however the
+           float and double builds round the time left */
+        a->atkAnim -= dt;
+        if (a->atkAnim < 1e-4f) a->atkAnim = 0.f;
         t = 1.f - a->atkAnim / a->atkAnimDur;
         if (MODEL_HAS(m, JOINT_ARMR_S)) {
+            float pose[3], twist;
+            int k;
             if (t < 0.3f) {
-                float k = t / 0.3f;
-                sh = -0.95f * k;
-                elb = -1.35f * k;
+                /* up and over the shoulder, easing in and out */
+                float u = t / 0.3f;
+                u = u * u * (3.f - 2.f * u);
+                for (k = 0; k < 3; k++)
+                    pose[k] = a->swingFrom[k] + (kWind[k] - a->swingFrom[k]) * u;
+                twist = 0.25f * u;              /* weapon shoulder draws back */
             } else {
-                float k2 = (t - 0.3f) / 0.7f;
-                float e = sinf(k2 * API);
-                sh = -0.95f + e * (0.95f + a->atkSwing);
-                elb = -1.35f + e * 1.25f;
+                /* then the chop: fast off the top, slowing through the end */
+                float u = (t - 0.3f) / 0.7f, e = sinf(u * API * 0.5f);
+                float end[3];
+                end[0] = kStrike[0] + (a->atkSwing - 1.4f) * 0.6f;
+                end[1] = kStrike[1];
+                end[2] = kStrike[2];
+                for (k = 0; k < 3; k++)
+                    pose[k] = kWind[k] + (end[k] - kWind[k]) * e;
+                twist = (0.25f - 0.55f * e) * (1.f - u * u);  /* and drives through */
             }
-            p->rot[JOINT_ARMR_S][0] = sh;
-            p->rot[JOINT_ARMR_E][0] = minf(0.f, elb);
-            p->rot[JOINT_CHEST][1] += sinf(t * API) * 0.22f;
+            arm_pose(a, pose[0], pose[1], pose[2]);
+            p->rot[JOINT_CHEST][1] += twist;
         } else if (MODEL_HAS(m, JOINT_BODY)) {
             p->bodyZ = sinf(t * API) * 0.42f;   /* beasts lunge instead */
         }
     } else {
         if (MODEL_HAS(m, JOINT_ARMR_S)) {
-            p->rot[JOINT_ARMR_S][0] =
-                approach(p->rot[JOINT_ARMR_S][0], 0.f, dt * 11.f);
-            p->rot[JOINT_ARMR_E][0] =
-                approach(p->rot[JOINT_ARMR_E][0], -0.2f, dt * 11.f);
+            float sh = p->rot[JOINT_ARMR_S][0], elb = p->rot[JOINT_ARMR_E][0];
+            float aim = p->rot[JOINT_ARMR_H][0] + sh + elb + a->mount;
+            arm_pose(a, approach(sh, kHold[0], dt * 11.f),
+                     approach(elb, kHold[1], dt * 11.f),
+                     approach(aim, kHold[2], dt * 11.f));
         }
         if (MODEL_HAS(m, JOINT_BODY))
             p->bodyZ = approach(p->bodyZ, 0.f, dt * 12.f);

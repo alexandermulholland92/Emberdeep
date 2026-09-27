@@ -62,7 +62,8 @@ def main():
             if hit:
                 break
 
-    print('%d models animated 90 frames, %d with matching clocks' % (len(ref), clocks))
+    print('%d snapshots of %d models over 90 frames, %d with matching clocks'
+          % (len(ref), len({m['name'].split('@')[0] for m in ref}), clocks))
     if bad:
         print('%d MISMATCHED:' % len(bad))
         for name, why in bad[:10]:
