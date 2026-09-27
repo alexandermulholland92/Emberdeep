@@ -145,106 +145,24 @@ for (const roster of [env.ENEMIES, env.BOSSES])
 
 /* --anim: run the page's own animateActor over a fixed script and dump the
    resulting world matrices, so the C port can be diffed frame-exactly */
-/* The port deliberately replaces the page's biped / quadruped stride (see
-   src/anim.c): the knees fold the way a knee bends and only while the leg
-   swings through, the body settles onto the planted foot, the stride eases
-   in and out, and the off-hand swings against its own leg. The same change
-   is applied to the page's function here, so every other part of
-   animateActor is still diffed against the original. Each original piece
-   must be found - a page that no longer matches fails loudly rather than
-   silently checking the port against itself. */
-const GAIT_FIX = [
-  [`var rate = ud.kind === 'quad' ? 11 : 8.5;
-    ent.walkT += dt * (moving ? rate : 2.2);
-    for (var j = 0; j < ud.legs.length; j++) {
-      var leg = ud.legs[j];
-      var phase = ud.kind === 'quad'
-        ? ent.walkT + ((j === 0 || j === 3) ? 0 : Math.PI)   // diagonal gait
-        : ent.walkT + (j ? Math.PI : 0);
-      leg.hip.rotation.x = Math.sin(phase) * 0.55 * amp;
-      leg.knee.rotation.x = -Math.max(0, Math.sin(phase - 0.7)) * 0.85 * amp;
-    }
-    ent.obj.position.y = baseY + (moving
-      ? Math.abs(Math.sin(ent.walkT)) * 0.045
-      : Math.sin(ent.walkT) * 0.008);
-    if (ud.chest) ud.chest.rotation.y = Math.sin(ent.walkT) * 0.11 * amp;`,
-   `var rate = ud.kind === 'quad' ? 11 : 8.5;
-    var lock = 1e9;
-    ent.stride = approach(ent.stride, moving ? 1 : 0.05, dt * 12);
-    ent.walkT += dt * (moving ? rate : 2.2) * (moving < 0 ? -1 : 1);
-    for (var j = 0; j < ud.legs.length; j++) {
-      var leg = ud.legs[j];
-      var phase = ud.kind === 'quad'
-        ? ent.walkT + ((j === 0 || j === 3) ? 0 : Math.PI)
-        : ent.walkT + (j ? Math.PI : 0);
-      var hip = Math.sin(phase) * 0.55 * ent.stride;
-      var knee = Math.max(0, -Math.cos(phase + 0.5)) * 0.85 * ent.stride;
-      leg.hip.rotation.x = hip;
-      leg.knee.rotation.x = knee;
-      var shin = hip + knee, s = Math.sin(shin);
-      lock = Math.min(lock, ent.thigh * (1 - Math.cos(hip))
-                            + ent.sole * (1 - Math.cos(shin))
-                            - Math.max(ent.toe * s, ent.heel * s));
-    }
-    if (!ud.legs.length) lock = 0;
-    var walking = (ent.stride - 0.05) / 0.95;
-    ent.obj.position.y = baseY - lock * ent.scale * walking
-                       + Math.sin(ent.walkT) * 0.008 * (1 - walking);
-    if (ud.chest) ud.chest.rotation.y = Math.sin(ent.walkT) * 0.11 * ent.stride;`],
-  ['var swingA = moving ? Math.sin(ent.walkT + Math.PI) * 0.42 : 0;',
-   'var swingA = moving ? Math.sin(ent.walkT) * 0.42 : 0;']
-];
-function fixGait(src) {
-  for (const [from, to] of GAIT_FIX) {
-    /* match on tokens, not on the page's exact indentation */
-    const words = from.trim().split(/\s+/)
-      .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    const re = new RegExp(words.join('\\s+'));
-    if (!re.test(src))
-      throw new Error('the page\'s stride no longer matches what anim.c ' +
-                      'replaced; update GAIT_FIX in tests/model_ref.js:\n' +
-                      from.split('\n')[0]);
-    src = src.replace(re, () => to);
-  }
-  return src;
-}
-
-/* What anim_init measures off the first leg: the thigh, and the lowest box
-   hung from the knee, whose heel or toe meets the floor as the shin tilts. */
-function measureLegs(ent) {
-  const leg = ent.obj.userData.legs && ent.obj.userData.legs[0];
-  ent.thigh = ent.sole = ent.heel = ent.toe = 0;
-  if (!leg || !leg.knee || leg.knee.parent !== leg.hip) return;
-  ent.thigh = -leg.knee.position.y;
-  for (const c of leg.knee.children) {
-    if (!c.isMesh || geomOf(c.geometry).type !== 'Box') continue;
-    const p = c.geometry.parameters;
-    const depth = -c.position.y + p.height * 0.5 * c.scale.y;
-    if (depth > ent.sole) {
-      ent.sole = depth;
-      ent.heel = c.position.z - p.depth * 0.5 * c.scale.z;
-      ent.toe = c.position.z + p.depth * 0.5 * c.scale.z;
-    }
-  }
-}
-
 if (process.argv.includes('--anim')) {
   const mathBlock = slice('function clamp(v, a, b)', 'function dist2D');
-  const animBlock = fixGait(slice('function animateActor(ent, dt, moving)',
-                                  'function flashModel('));
+  const animBlock = slice('function animateActor(ent, dt, moving)', 'function flashModel(');
   /* both blocks declare plain functions; evaluate them into one scope */
   const scope = new Function(mathBlock + animBlock +
                              'return { animateActor: animateActor, swing: swing };')();
   const out = [];
+  const WALK_SPEED = 2;   /* units per second; tests/anim_dump.c matches it */
   for (const [name, make] of models) {
     const root = make();
     const ent = { obj: root, baseY: 0, walkT: 0, floatT: 0,
                   atkAnim: 0, atkAnimDur: 0.3, atkSwing: 1.4,
-                  telegraphing: false, stride: 0.05, scale: 1 };
-    measureLegs(ent);
+                  telegraphing: false };
     const dt = 1 / 60;
     for (let f = 0; f < 90; f++) {
       if (f === 20) scope.swing(ent, 1.4, 0.3);
+      /* walk forward while moving, so the stride's cadence is exercised */
+      if (f < 60) root.position.z += WALK_SPEED * dt;
       scope.animateActor(ent, dt, f < 60);
     }
     root.updateMatrixWorld(true);

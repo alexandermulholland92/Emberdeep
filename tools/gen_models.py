@@ -43,6 +43,27 @@ def joint_of(name):
     return 'JOINT_NONE'
 
 
+def feet_of(nodes):
+    """The browser's legs have no ankle joint: the foot is the lowest box
+    hung from each knee (the same rule src/anim.c measures by). Mark it so
+    the walk can pose it; its rest transform is left exactly as it was."""
+    feet = {}
+    for ki, k in enumerate(nodes):
+        m = LEG_RE.match(k.get('name') or '')
+        if not m or m.group(2) != 'k':
+            continue
+        best, depth = None, 0.0
+        for ni, n in enumerate(nodes):
+            if n['parent'] != ki or n.get('geom') != 'Box':
+                continue
+            d = -n['pos'][1] + n['params'][1] * 0.5 * n['scale'][1]
+            if d > depth:
+                best, depth = ni, d
+        if best is not None:
+            feet[best] = 'JOINT_LEG_FOOT(%s)' % m.group(1)
+    return feet
+
+
 def f(v):
     if v is None or v is False:
         return '0'
@@ -91,11 +112,12 @@ def main():
             c.write('/* %s: %d nodes, %d meshes */\n'
                     % (m['name'], len(nodes), m['partCount']))
             c.write('static const ModelNode k%s[] = {\n' % ident(m['name']).title())
-            for n in nodes:
+            feet = feet_of(nodes)
+            for ni, n in enumerate(nodes):
                 params = list(n.get('params') or [])
                 params += [0] * (8 - len(params))
                 c.write('    { %d, %s, %s, %s,\n'
-                        % (n['parent'], joint_of(n['name']),
+                        % (n['parent'], feet.get(ni, joint_of(n['name'])),
                            GEO.get(n.get('geom'), '-1'),
                            SURF.get(n.get('surf'), '-1')))
                 col = n.get('col')
@@ -114,11 +136,12 @@ def main():
         for m in models:
             legs = len(m['joints'].get('legs', []))
             mask = []
-            for n in m['nodes']:
-                j = joint_of(n['name'])
+            feet = feet_of(m['nodes'])
+            for ni, n in enumerate(m['nodes']):
+                j = feet.get(ni, joint_of(n['name']))
                 if j != 'JOINT_NONE':
-                    mask.append('(1u << %s)' % j)
-            expr = ' | '.join(sorted(set(mask))) or '0u'
+                    mask.append('(1ull << %s)' % j)
+            expr = ' | '.join(sorted(set(mask))) or '0ull'
             c.write('    { "%s", %s, %d, %d,\n      %s,\n      k%s },\n'
                     % (m['name'], KIND.get(m['kind'], 'MKIND_BIPED'), legs,
                        len(m['nodes']), expr, ident(m['name']).title()))

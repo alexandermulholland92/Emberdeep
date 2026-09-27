@@ -26,12 +26,16 @@ enum {
     JOINT_CAPE0, JOINT_WING0, JOINT_WING1,
     JOINT_ARMR_S, JOINT_ARMR_E, JOINT_ARMR_H,
     JOINT_ARML_S, JOINT_ARML_E, JOINT_ARML_H,
-    JOINT_LEG_BASE                      /* 8 legs, hip then knee */
+    JOINT_LEG_BASE                      /* 8 legs: hip, knee, foot */
 };
 #define MODEL_MAX_LEGS 8
-#define JOINT_LEG_HIP(i)  (JOINT_LEG_BASE + (i) * 2)
-#define JOINT_LEG_KNEE(i) (JOINT_LEG_BASE + (i) * 2 + 1)
-#define JOINT_COUNT       (JOINT_LEG_BASE + MODEL_MAX_LEGS * 2)
+#define JOINT_LEG_HIP(i)  (JOINT_LEG_BASE + (i) * 3)
+#define JOINT_LEG_KNEE(i) (JOINT_LEG_BASE + (i) * 3 + 1)
+/* The browser's rig has no ankle: a foot is just the lowest box hung from
+   its knee, and tilts with the shin. The generator marks that box as a
+   joint so the walk can keep a planted foot flat on the floor. */
+#define JOINT_LEG_FOOT(i) (JOINT_LEG_BASE + (i) * 3 + 2)
+#define JOINT_COUNT       (JOINT_LEG_BASE + MODEL_MAX_LEGS * 3)
 
 /* ---- body plans, matching the rig's `kind` ---- */
 enum { MKIND_BIPED, MKIND_ARACHNID, MKIND_QUAD, MKIND_FLOAT };
@@ -54,13 +58,13 @@ typedef struct ModelDefTag {
     unsigned char kind;
     unsigned char legs;
     short nodeCount;
-    unsigned int jointMask;   /* bit per JOINT_*, so the animation can ask
+    unsigned long long jointMask;   /* bit per JOINT_*, so the animation can ask
                                  the same questions the browser asks of
                                  userData (does this rig have armR?) */
     const ModelNode *nodes;
 } ModelDef;
 
-#define MODEL_HAS(m, j) (((m)->jointMask >> (j)) & 1u)
+#define MODEL_HAS(m, j) (((m)->jointMask >> (j)) & 1ull)
 
 /* model ids and the table itself live in model_data.h */
 #include "model_data.h"

@@ -93,7 +93,8 @@ stubcheck:
 	@sh tools/check_stubs.sh
 
 # prove the procedural surfaces still match the browser build byte for byte.
-# needs node and a copy of emberdeep.html:  make texcheck HTML=path/to/emberdeep.html
+# needs node; the browser build is emberdeep.html in the repository root
+# (point HTML= at another copy to check against that instead)
 HTML ?= emberdeep.html
 texcheck:
 	@command -v node >/dev/null || { echo "texcheck needs node"; exit 1; }

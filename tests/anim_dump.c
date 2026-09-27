@@ -2,8 +2,10 @@
    reference uses (tests/model_ref.js --anim) and print the resulting world
    matrices, so the two can be diffed frame-exactly. See `make animcheck`.
 
-   The script is 90 frames at 1/60s: moving for the first 60, idle after,
-   with a weapon swing triggered on frame 20. */
+   The script is 90 frames at 1/60s: walking forward at 2 units a second
+   for the first 60, idle after, with a weapon swing triggered on frame 20.
+   The browser reads the speed off the actor's own motion, so it only sees
+   it from the second frame; the speed here follows suit. */
 #include <stdio.h>
 #include <stdlib.h>
 #include "anim.h"
@@ -15,17 +17,20 @@ int main(void) {
         ActorAnim a;
         M4 root, *w;
         float pos[3], rot[3] = { 0.f, 0.f, 0.f }, sc[3] = { 1.f, 1.f, 1.f };
-        const float dt = 1.f / 60.f;
+        const float dt = 1.f / 60.f, speed = 2.f;
+        float z = 0.f;
 
         anim_init(&a, m);
         for (f = 0; f < 90; f++) {
             if (f == 20) anim_swing(&a, 1.4f, 0.3f);
+            if (f < 60) z += speed * dt;
+            a.speed = (f > 0 && f < 60) ? speed : 0.f;
             anim_update(&a, dt, f < 60, 0, 0.f);
         }
 
         /* the browser writes the bob onto the actor's position.y, so the
            root matrix has to carry it for the comparison to line up */
-        pos[0] = 0.f; pos[1] = a.rootY; pos[2] = 0.f;
+        pos[0] = 0.f; pos[1] = a.rootY; pos[2] = z;
         m4_compose(pos, rot, sc, &root);
 
         w = (M4 *)malloc(sizeof(M4) * (size_t)m->nodeCount);

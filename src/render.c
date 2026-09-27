@@ -414,6 +414,7 @@ static void slot_step(ActorSlot *s, int modelId, float dt, float x, float z,
     s->anim.lastX = x;
     s->anim.lastZ = z;
     s->anim.scale = scale;
+    s->anim.speed = dt > 0.f ? sqrtf(dx * dx + dz * dz) / dt : 0.f;
 
     /* a rising attack timer is the frame the swing was thrown; the duration
        the simulation set becomes the swing's length */
