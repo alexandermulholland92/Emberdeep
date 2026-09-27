@@ -79,6 +79,11 @@ test:
 		src/anim.c src/model.c src/model_data.c src/geom.c -lm \
 		-o /tmp/emberdeep_gait
 	@/tmp/emberdeep_gait
+	@echo "--- weapons (regression: carried and swung backwards) ---"
+	@cc -std=c99 -Wall -Wextra -DTEX_HOST_HARNESS -Isrc tests/swing_test.c \
+		src/anim.c src/model.c src/model_data.c src/geom.c -lm \
+		-o /tmp/emberdeep_swing
+	@/tmp/emberdeep_swing
 
 # type-check the Vita-only files without the SDK, using stub headers
 check:

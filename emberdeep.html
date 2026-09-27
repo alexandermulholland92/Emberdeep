@@ -1588,7 +1588,9 @@ function makeBow(size, woodHex) {
   var g = new THREE.Group();
   var wm = surfMat('wood', woodHex, 0.85, 0);
   var limb = S(new THREE.Mesh(new THREE.TorusGeometry(size, 0.024, 5, 16, Math.PI * 1.15), wm));
-  limb.rotation.z = Math.PI / 2; g.add(limb);
+  // stood upright and turned to bulge forward, so the string below sits
+  // behind it (it used to bow out sideways, clear of its own string)
+  limb.rotation.set(0, Math.PI / 2, Math.PI / 2); g.add(limb);
   var str = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, size * 1.8, 4),
     new THREE.MeshStandardMaterial({ color: 0xd8d0bb, roughness: 0.9 }));
   str.position.z = -size * 0.44; g.add(str);
@@ -1879,8 +1881,11 @@ function buildBiped(cfg) {
   var armR = buildArm(1, 0), armL = buildArm(-1, 1);
 
   if (cfg.weapon) {
+    // weapons are built pointing up their +y with the edge (or axe head)
+    // out along +x; a quarter turn about the shaft puts the edge forward,
+    // leading the chop, instead of striking with the flat
     cfg.weapon.position.y = -cfg.limbR * 0.5;
-    cfg.weapon.rotation.x = -0.22;
+    cfg.weapon.rotation.set(-0.22, -Math.PI / 2, 0);
     armR.hand.add(cfg.weapon);
   }
   if (cfg.offhand) {
@@ -2901,37 +2906,95 @@ function animateActor(ent, dt, moving) {
     ud.headPivot.rotation.x = approach(ud.headPivot.rotation.x, moving ? 0.08 : 0, dt * 6);
   }
 
-  if (ent.telegraphing) return;
+  // ---- a boss's wind-up: haul the weapon up and lean back into it ----
+  armInfo(ent);
+  ent.lean = approach(ent.lean, ent.telegraphing ? -0.18 : 0, dt * 5);
+  if (ud.chest && ud.armR) ud.chest.rotation.x = ent.chestX + ent.lean;
+  if (ent.telegraphing) {
+    if (ud.armR) {
+      var ta = armAim(ent);
+      armPose(ent, approach(ud.armR.shoulder.rotation.x, WIND[0], dt * 5),
+              approach(ud.armR.elbow.rotation.x, WIND[1], dt * 5),
+              approach(ta, WIND[2], dt * 5));
+    }
+    return;
+  }
 
   // ---- weapon arm: wind up, then swing through ----
   if (ent.atkAnim > 0) {
-    ent.atkAnim = Math.max(0, ent.atkAnim - dt);
+    // a swing of whole frames ends on its last frame, however the float and
+    // double builds round the time left
+    ent.atkAnim -= dt;
+    if (ent.atkAnim < 1e-4) ent.atkAnim = 0;
     var t = 1 - ent.atkAnim / ent.atkAnimDur;
     if (ud.armR) {
-      var sh, elb;
+      var pose = [0, 0, 0], twist, k;
       if (t < 0.3) {
-        var k = t / 0.3;
-        sh = -0.95 * k;
-        elb = -1.35 * k;
+        // up and over the shoulder, easing in and out
+        var u = t / 0.3;
+        u = u * u * (3 - 2 * u);
+        for (k = 0; k < 3; k++) pose[k] = ent.swingFrom[k] + (WIND[k] - ent.swingFrom[k]) * u;
+        twist = 0.25 * u;                          // weapon shoulder draws back
       } else {
-        var k2 = (t - 0.3) / 0.7;
-        var e = Math.sin(k2 * Math.PI);
-        sh = -0.95 + e * (0.95 + ent.atkSwing);
-        elb = -1.35 + e * 1.25;
+        // then the chop: fast off the top, slowing through the end
+        var u2 = (t - 0.3) / 0.7, e = Math.sin(u2 * Math.PI * 0.5);
+        var end = [STRIKE[0] + (ent.atkSwing - 1.4) * 0.6, STRIKE[1], STRIKE[2]];
+        for (k = 0; k < 3; k++) pose[k] = WIND[k] + (end[k] - WIND[k]) * e;
+        twist = (0.25 - 0.55 * e) * (1 - u2 * u2);  // and drives through
       }
-      ud.armR.shoulder.rotation.x = sh;
-      ud.armR.elbow.rotation.x = Math.min(0, elb);
-      if (ud.chest) ud.chest.rotation.y += Math.sin(t * Math.PI) * 0.22;
+      armPose(ent, pose[0], pose[1], pose[2]);
+      if (ud.chest) ud.chest.rotation.y += twist;
     } else if (ud.body) {
       ud.body.position.z = Math.sin(t * Math.PI) * 0.42;   // beasts lunge instead
     }
   } else {
     if (ud.armR) {
-      ud.armR.shoulder.rotation.x = approach(ud.armR.shoulder.rotation.x, 0, dt * 11);
-      ud.armR.elbow.rotation.x = approach(ud.armR.elbow.rotation.x, -0.2, dt * 11);
+      var ra = armAim(ent);
+      armPose(ent, approach(ud.armR.shoulder.rotation.x, HOLD[0], dt * 11),
+              approach(ud.armR.elbow.rotation.x, HOLD[1], dt * 11),
+              approach(ra, HOLD[2], dt * 11));
     }
     if (ud.body) ud.body.position.z = approach(ud.body.position.z, 0, dt * 12);
   }
+}
+
+// ---------- the weapon arm ----------
+// Its poses: shoulder, elbow, and where the weapon points (radians from
+// straight up, toward the front). Rigs face +z, and a negative x rotation
+// raises a limb forward. A weapon is carried angled up and ahead; a swing
+// hauls it up over the shoulder until it points down the back, then chops
+// it forward and down through whatever is in front.
+var HOLD = [0, -0.45, 0.6];
+var WIND = [-2.5, -1.2, -2.6];
+var STRIKE = [-0.55, -0.15, 1.9];
+
+// A weapon is a group hung from the right hand (a bare hand holds only
+// meshes), mounted at a fixed angle the aim has to allow for.
+function armInfo(ent) {
+  if (ent.armed !== undefined) return;
+  var ud = ent.obj.userData;
+  ent.armed = false; ent.mount = 0; ent.lean = 0;
+  ent.chestX = ud.chest ? ud.chest.rotation.x : 0;
+  ent.swingFrom = HOLD.slice();
+  if (ud.armR && ud.armR.hand) {
+    var kids = ud.armR.hand.children;
+    for (var i = 0; i < kids.length; i++) {
+      if (!kids[i].isMesh) { ent.armed = true; ent.mount = kids[i].rotation.x; break; }
+    }
+  }
+}
+// where the weapon points now
+function armAim(ent) {
+  var r = ent.obj.userData.armR;
+  return r.hand.rotation.x + r.shoulder.rotation.x + r.elbow.rotation.x + ent.mount;
+}
+// put the weapon arm in a pose: the wrist turns the weapon to its aim, and
+// a bare hand keeps its wrist straight
+function armPose(ent, sh, elb, aim) {
+  var r = ent.obj.userData.armR;
+  r.shoulder.rotation.x = sh;
+  r.elbow.rotation.x = Math.min(0, elb);
+  r.hand.rotation.x = ent.armed ? aim - sh - r.elbow.rotation.x - ent.mount : 0;
 }
 // ---------- the walk's shape ----------
 var HIP_SWING = 0.55;   // thigh either side of vertical
@@ -3036,6 +3099,12 @@ function measureStride(ent) {
   }
 }
 function swing(ent, amount, dur) {
+  // wind up from wherever the arm is - a boss is already half there
+  armInfo(ent);
+  if (ent.obj.userData.armR) {
+    var r = ent.obj.userData.armR;
+    ent.swingFrom = [r.shoulder.rotation.x, r.elbow.rotation.x, armAim(ent)];
+  }
   ent.atkAnim = dur || 0.3;
   ent.atkAnimDur = dur || 0.3;
   ent.atkSwing = amount || 1.4;
@@ -3504,13 +3573,7 @@ function updateBoss(e, dt, d) {
   if (e.bossState === 'telegraph') {
     e.bossTimer -= dt;
     e.telegraphing = true;
-    var ud = e.obj.userData;
-    if (ud.armR) {
-      var w = 1 - Math.max(0, e.bossTimer) / e.pending.tele;
-      ud.armR.shoulder.rotation.x = -0.35 - w * 1.15;   // haul the weapon back
-      ud.armR.elbow.rotation.x = -0.3 - w * 0.9;
-      if (ud.chest) ud.chest.rotation.x = -w * 0.18;
-    }
+    // animateActor hauls the weapon up while e.telegraphing is set
     if (Math.random() < dt * 24) {
       burst(e.obj.position.clone().setY(0.25), 2,
         { type: 'dust', speed: 1.0, size: 0.09, life: 0.5, grav: -1.5, spread: 0.9 });
@@ -3518,8 +3581,6 @@ function updateBoss(e, dt, d) {
     faceTarget(e, p.obj.position, dt * 0.5);
     if (e.bossTimer <= 0) {
       e.telegraphing = false;
-      if (ud.armR) { ud.armR.shoulder.rotation.x = 0; ud.armR.elbow.rotation.x = -0.2; }
-      if (ud.chest) ud.chest.rotation.x = 0;
       execBossAttack(e, e.pending.name);
       e.bossState = 'idle';
       e.bossTimer = rand(2.6, 4.2);

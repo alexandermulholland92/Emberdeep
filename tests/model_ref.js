@@ -144,7 +144,11 @@ for (const roster of [env.ENEMIES, env.BOSSES])
     if (roster[k].model) models.push([k, roster[k].model]);
 
 /* --anim: run the page's own animateActor over a fixed script and dump the
-   resulting world matrices, so the C port can be diffed frame-exactly */
+   world matrices at points along it, so the C port can be diffed
+   frame-exactly: walking, winding up, holding the weapon, a boss's
+   wind-up, the swing out of it. tests/anim_dump.c snapshots the same
+   frames. */
+const ANIM_SNAPSHOTS = [10, 25, 45, 59, 70, 79, 89];
 if (process.argv.includes('--anim')) {
   const mathBlock = slice('function clamp(v, a, b)', 'function dist2D');
   const animBlock = slice('function animateActor(ent, dt, moving)', 'function flashModel(');
@@ -161,16 +165,20 @@ if (process.argv.includes('--anim')) {
     const dt = 1 / 60;
     for (let f = 0; f < 90; f++) {
       if (f === 20) scope.swing(ent, 1.4, 0.3);
+      /* a boss-style wind-up, then the swing it was winding up for */
+      ent.telegraphing = f >= 62 && f < 76;
+      if (f === 76) scope.swing(ent, 1.4, 0.3);
       /* walk forward while moving, so the stride's cadence is exercised */
       if (f < 60) root.position.z += WALK_SPEED * dt;
       scope.animateActor(ent, dt, f < 60);
+      if (!ANIM_SNAPSHOTS.includes(f)) continue;
+      root.updateMatrixWorld(true);
+      const nodes = [];
+      (function walk(o) { nodes.push(o.matrixWorld.elements.map(r6));
+                          for (const c of o.children) walk(c); })(root);
+      out.push({ name: name + '@' + f, walkT: r6(ent.walkT),
+                 floatT: r6(ent.floatT), rootY: r6(root.position.y), nodes });
     }
-    root.updateMatrixWorld(true);
-    const nodes = [];
-    (function walk(o) { nodes.push(o.matrixWorld.elements.map(r6));
-                        for (const c of o.children) walk(c); })(root);
-    out.push({ name, walkT: r6(ent.walkT), floatT: r6(ent.floatT),
-               rootY: r6(root.position.y), nodes });
   }
   process.stdout.write(JSON.stringify(out, null, 1) + '\n');
   process.exit(0);
