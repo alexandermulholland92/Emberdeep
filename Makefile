@@ -74,6 +74,11 @@ test:
 	@cc -std=c99 -Wall -Wextra -DSV_HOST_HARNESS -Isrc tests/save_test.c \
 		src/save.c src/dungeon.c src/actors.c -lm -o /tmp/emberdeep_save
 	@/tmp/emberdeep_save
+	@echo "--- walk cycle (regression: knees bent backwards) ---"
+	@cc -std=c99 -Wall -Wextra -DTEX_HOST_HARNESS -Isrc tests/gait_test.c \
+		src/anim.c src/model.c src/model_data.c src/geom.c -lm \
+		-o /tmp/emberdeep_gait
+	@/tmp/emberdeep_gait
 
 # type-check the Vita-only files without the SDK, using stub headers
 check:

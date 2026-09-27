@@ -389,8 +389,10 @@ static ActorSlot gPlayerSlot;
 static ActorSlot gEnemySlot[MAX_ENEMY];
 
 static void slot_step(ActorSlot *s, int modelId, float dt, float x, float z,
-                      float baseY, float simAtk, int telegraphing) {
+                      float facing, float scale, float baseY, float simAtk,
+                      int telegraphing) {
     int moving;
+    float dx, dz;
     if (s->bound != modelId + 1) {
         s->bound = modelId + 1;
         anim_init(&s->anim, model_get(modelId));
@@ -398,10 +400,20 @@ static void slot_step(ActorSlot *s, int modelId, float dt, float x, float z,
         s->anim.lastZ = z;
         s->prevAtk = 0.f;
     }
-    /* the simulation does not flag movement, so infer it from the step taken */
-    moving = (fabsf(x - s->anim.lastX) + fabsf(z - s->anim.lastZ)) > 0.002f;
+    /* the simulation does not flag movement, so infer it from the step
+       taken - and whether it went against the way the actor faces, as a
+       ranged enemy backing off does, which plays the stride in reverse.
+       Only clearly backwards (over 120 degrees off) counts, so an actor
+       still turning to face its path does not shuffle to and fro. */
+    dx = x - s->anim.lastX;
+    dz = z - s->anim.lastZ;
+    moving = (fabsf(dx) + fabsf(dz)) > 0.002f;
+    if (moving && dx * sinf(facing) + dz * cosf(facing)
+                  < -0.5f * sqrtf(dx * dx + dz * dz))
+        moving = -1;
     s->anim.lastX = x;
     s->anim.lastZ = z;
+    s->anim.scale = scale;
 
     /* a rising attack timer is the frame the swing was thrown; the duration
        the simulation set becomes the swing's length */
@@ -445,8 +457,8 @@ static void draw_actors(float dt) {
         int mid = model_for_class(G.pl.cls);
         float k = light_at(G.pl.pos.x, G.pl.pos.z);
         if (G.pl.invuln > 0.f) k *= 1.35f;
-        slot_step(&gPlayerSlot, mid, dt, G.pl.pos.x, G.pl.pos.z, 0.f,
-                  G.pl.atkAnim, 0);
+        slot_step(&gPlayerSlot, mid, dt, G.pl.pos.x, G.pl.pos.z, G.pl.facing,
+                  1.f, 0.f, G.pl.atkAnim, 0);
         draw_model(mid, &gPlayerSlot.anim.pose, G.pl.pos.x,
                    gPlayerSlot.anim.rootY, G.pl.pos.z, G.pl.facing, 1.f, k, 0);
     }
@@ -459,8 +471,8 @@ static void draw_actors(float dt) {
         if (sc < 0.05f) continue;
         {
             int mid = model_for_enemy(e->type);
-            slot_step(&gEnemySlot[i], mid, dt, e->pos.x, e->pos.z, e->baseY,
-                      e->atkAnim, e->bossState == 1);
+            slot_step(&gEnemySlot[i], mid, dt, e->pos.x, e->pos.z, e->facing,
+                      sc, e->baseY, e->atkAnim, e->bossState == 1);
             draw_model(mid, &gEnemySlot[i].anim.pose, e->pos.x,
                        gEnemySlot[i].anim.rootY, e->pos.z, e->facing, sc,
                        light_at(e->pos.x, e->pos.z), e->flash > 0.f);
