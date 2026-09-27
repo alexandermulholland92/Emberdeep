@@ -10,6 +10,14 @@
    advances walkT inside animateActor at rates that differ per body plan,
    and keeping them on this side leaves actors.c (and its host tests)
    untouched.
+
+   One deliberate departure: walking. The browser's biped and quadruped
+   stride bent the knees the wrong way and swung each leg forward
+   straight, so a walk read as walking backwards, and its off-hand swung
+   with its own leg; anim.c replaces both (see the comments there).
+   tests/model_ref.js applies the same change to the browser's function
+   before diffing, so everything else is still checked against the
+   original, and tests/gait_test.c checks the walk itself.
    ========================================================== */
 #ifndef EMBERDEEP_ANIM_H
 #define EMBERDEEP_ANIM_H
@@ -27,6 +35,11 @@ typedef struct {
     float rootY;        /* the bob animateActor writes to position.y */
     float lastX, lastZ; /* to tell whether the actor is moving */
     float legRestZ[MODEL_MAX_LEGS];   /* arachnid legs splay from a rest angle */
+    float stride;       /* 0.05 standing .. 1 walking, eased between */
+    float thigh;        /* hip to knee, then the sole's depth below the */
+    float sole;         /* knee and its heel and toe along z: enough to */
+    float heel, toe;    /* keep whichever foot is planted on the floor  */
+    float scale;        /* the size the actor is drawn at; 1 by default */
     int   started;
 } ActorAnim;
 
@@ -37,8 +50,10 @@ void anim_init(ActorAnim *a, const ModelDef *model);
 void anim_swing(ActorAnim *a, float amount, float dur);
 
 /* One frame of animateActor. `baseY` is the actor's resting height,
-   `moving` whether it is under way, `telegraphing` whether a boss is in
-   its wind-up (which freezes the arms and head). */
+   `moving` whether it is under way (negative when it is backing away
+   while still facing forward, which plays the stride in reverse),
+   `telegraphing` whether a boss is in its wind-up (which freezes the arms
+   and head). Set `scale` first if the actor is drawn at another size. */
 void anim_update(ActorAnim *a, float dt, int moving, int telegraphing,
                  float baseY);
 

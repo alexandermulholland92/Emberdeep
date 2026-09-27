@@ -33,9 +33,47 @@ void anim_init(ActorAnim *a, const ModelDef *model) {
     a->atkSwing = 1.4f;
     a->rootY = 0.f;
     a->lastX = a->lastZ = 0.f;
+    a->stride = 0.05f;
+    a->thigh = a->sole = a->heel = a->toe = 0.f;
+    a->scale = 1.f;
     a->started = 0;
     for (i = 0; i < MODEL_MAX_LEGS; i++)
         a->legRestZ[i] = model ? a->pose.rot[JOINT_LEG_HIP(i)][2] : 0.f;
+
+    /* Every stepping rig's legs are alike, so the first one is measured:
+       the thigh, and the foot - the lowest box hung from the knee - whose
+       heel or toe is what meets the floor once the shin tilts. */
+    if (model && model->legs > 0) {
+        int hip = -1, knee = -1;
+        for (i = 0; i < model->nodeCount; i++) {
+            if (model->nodes[i].joint == JOINT_LEG_HIP(0)) hip = i;
+            if (model->nodes[i].joint == JOINT_LEG_KNEE(0)) knee = i;
+        }
+        if (hip >= 0 && knee >= 0 && model->nodes[knee].parent == hip) {
+            a->thigh = -model->nodes[knee].pos[1];
+            for (i = 0; i < model->nodeCount; i++) {
+                const ModelNode *n = &model->nodes[i];
+                float depth;
+                if (n->parent != knee || n->geom != GEO_BOX) continue;
+                depth = -n->pos[1] + n->gp[1] * 0.5f * n->scale[1];
+                if (depth > a->sole) {
+                    a->sole = depth;
+                    a->heel = n->pos[2] - n->gp[2] * 0.5f * n->scale[2];
+                    a->toe = n->pos[2] + n->gp[2] * 0.5f * n->scale[2];
+                }
+            }
+        }
+    }
+}
+
+/* How far a foot's lowest corner rises off the floor with the hip at `hip`
+   and the knee at `knee` (both about x, the knee's added to the thigh's):
+   the thigh and shin lift it as they swing off vertical, and the toe dips
+   as the shin tilts back, the heel as it tilts forward. */
+static float foot_lift(const ActorAnim *a, float hip, float knee) {
+    float shin = hip + knee, s = sinf(shin);
+    return a->thigh * (1.f - cosf(hip)) + a->sole * (1.f - cosf(shin))
+         - maxf(a->toe * s, a->heel * s);
 }
 
 void anim_swing(ActorAnim *a, float amount, float dur) {
@@ -80,25 +118,51 @@ void anim_update(ActorAnim *a, float dt, int moving, int telegraphing,
             p->rot[JOINT_LEG_HIP(i)][0] = cosf(ph) * 0.2f * amp;
         }
     } else {
-        /* biped / quadruped stride: hips swing, knees only fold one way */
+        /* biped / quadruped stride. Rigs face +z and a positive x rotation
+           swings a limb's far end backwards, so with the hip at
+           sin(phase) a leg swings forward while cos(phase) < 0 and is
+           planted while cos(phase) > 0.
+
+           The knee folds positive - shin back, heel up, the way a knee
+           bends - and only while its leg swings through, on a real
+           walk's timing: it starts to lift the heel shortly before the
+           hip stops driving back, is most bent a third of the way into
+           the swing, and is straight again before the foot reaches out in
+           front to land. (The browser folded it negative, which kicks the
+           shin forward like a knee bending backwards, and swung the leg
+           forward straight - together they read as walking backwards.)
+
+           The body then settles onto whichever foot is lowest, so it dips
+           as the legs spread and rides highest over a straight planted
+           leg, instead of lifting the feet off the floor mid-step. */
         float rate = (m->kind == MKIND_QUAD) ? 11.f : 8.5f;
-        a->walkT += dt * (moving ? rate : 2.2f);
+        float lock = 1e9f, walking;
+        a->stride = approach(a->stride, moving ? 1.f : 0.05f, dt * 12.f);
+        a->walkT += dt * (moving ? rate : 2.2f) * (moving < 0 ? -1.f : 1.f);
         for (i = 0; i < legs; i++) {
             float phase = (m->kind == MKIND_QUAD)
                 ? a->walkT + ((i == 0 || i == 3) ? 0.f : API)   /* diagonal gait */
                 : a->walkT + (i ? API : 0.f);
-            p->rot[JOINT_LEG_HIP(i)][0] = sinf(phase) * 0.55f * amp;
-            p->rot[JOINT_LEG_KNEE(i)][0] =
-                -maxf(0.f, sinf(phase - 0.7f)) * 0.85f * amp;
+            float hip = sinf(phase) * 0.55f * a->stride;
+            float knee = maxf(0.f, -cosf(phase + 0.5f)) * 0.85f * a->stride;
+            p->rot[JOINT_LEG_HIP(i)][0] = hip;
+            p->rot[JOINT_LEG_KNEE(i)][0] = knee;
+            lock = minf(lock, foot_lift(a, hip, knee));
         }
-        a->rootY = baseY + (moving ? fabsf(sinf(a->walkT)) * 0.045f
-                                   : sinf(a->walkT) * 0.008f);
-        p->rot[JOINT_CHEST][1] = sinf(a->walkT) * 0.11f * amp;
+        if (legs == 0) lock = 0.f;
+        /* standing still keeps the browser's gentle breathing bob */
+        walking = (a->stride - 0.05f) / 0.95f;
+        a->rootY = baseY - lock * a->scale * walking
+                 + sinf(a->walkT) * 0.008f * (1.f - walking);
+        p->rot[JOINT_CHEST][1] = sinf(a->walkT) * 0.11f * a->stride;
     }
 
-    /* ---- off-hand arm counter-swings while walking ---- */
+    /* ---- off-hand arm counter-swings while walking ----
+       The off-hand is on leg 0's side, so it has to run half a cycle
+       behind that leg to swing against it. (The browser's sin(walkT + PI)
+       put it in step with its own leg, like a pacing camel.) */
     {
-        float swingA = moving ? sinf(a->walkT + API) * 0.42f : 0.f;
+        float swingA = moving ? sinf(a->walkT) * 0.42f : 0.f;
         if (MODEL_HAS(m, JOINT_ARML_S) && !telegraphing) {
             p->rot[JOINT_ARML_S][0] =
                 approach(p->rot[JOINT_ARML_S][0], -swingA, dt * 9.f);
